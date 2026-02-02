@@ -19,7 +19,7 @@ class texture () =
   end
 
 type tag = ..
-type tag += No_tag | Player
+type tag += No_tag | Player | InScene of Scene.scene
 
 class tagged () =
   let r = Component.init No_tag in
@@ -54,6 +54,7 @@ class type drawable =
     inherit position
     inherit box
     inherit texture
+    inherit tagged
   end
 
 class type movable =
@@ -75,6 +76,16 @@ class player name =
   end
 
 class wall () =
+  object
+    inherit Entity.t ()
+    inherit position ()
+    inherit box ()
+    inherit tagged ()
+    inherit texture ()
+    inherit resolver ()
+  end
+
+class door () =
   object
     inherit Entity.t ()
     inherit position ()

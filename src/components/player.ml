@@ -2,8 +2,6 @@ open Ecs
 open Component_defs
 open System_defs
 
-type tag += Player
-
 let player (name, x, y, txt, width, height) =
   let e = new player name in
   e#texture#set txt;
@@ -13,9 +11,11 @@ let player (name, x, y, txt, width, height) =
   e#velocity#set Vector.zero;
   e#resolve#set (fun v t ->
     match t#tag#get with
-      | Wall.HWall _  | Wall.VWall _ ->
+      | InScene scene when scene = Scene.current () ->
           e#velocity#set Vector.zero;
           e#position#set (Vector.add e#position#get v)
+      | Door_transition.Door _ ->
+          ()
       | _ -> ()
     );
   Draw_system.(register (e :> t));

@@ -6,9 +6,9 @@ let player_height = 24
 let player_start_x = window_width / 2 - player_width / 2
 let player_start_y = window_height / 2 - player_height / 2
 let player_color = Texture.black
-let player_v_up = Vector.{ x = 0.0; y = -5.0 }
+let player_v_up = Vector.{ x = 0.0; y = -3.0 }
 let player_v_down = Vector.sub Vector.zero player_v_up
-let player_v_right = Vector.{ x = 5.0; y = 0.0 }
+let player_v_right = Vector.{ x = 3.0; y = 0.0 }
 let player_v_left = Vector.sub Vector.zero player_v_right
 
 let hwall_width = window_width
