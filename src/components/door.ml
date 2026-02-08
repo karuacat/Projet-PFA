@@ -2,18 +2,10 @@ open Ecs
 open Component_defs
 open System_defs
 
-type door_config = {
-  id: string; 
-  current_scene: Scene.scene;
-  target_scene: Scene.scene;
-  player_spawn_x: int;
-  player_spawn_y: int;
-}
-
 let door (config, x, y, width, height, txt) =
   let e = new door () in
   e#texture#set txt;
-  e#tag#set (Door_transition.Door config);
+  e#tag#set (Door config);
   e#position#set Vector.{x = float x; y = float y};
   e#box#set Rect.{width; height};
   e#resolve#set (fun v t ->

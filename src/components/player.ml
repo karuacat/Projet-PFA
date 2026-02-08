@@ -14,7 +14,7 @@ let player (name, x, y, txt, width, height) =
       | InScene scene when scene = Scene.current () ->
           e#velocity#set Vector.zero;
           e#position#set (Vector.add e#position#get v)
-      | Door_transition.Door _ ->
+        | Door _ ->
           ()
       | _ -> ()
     );

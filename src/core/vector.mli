@@ -12,3 +12,4 @@ val pp : Format.formatter -> t -> unit
 
 val zero : t
 val is_zero : t -> bool
+val equal : t -> t -> bool

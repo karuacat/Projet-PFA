@@ -14,8 +14,8 @@ let should_draw entity =
   try
     match entity#tag#get with
     | Component_defs.InScene scene -> scene = current_scene
-    | Door_transition.Door door_config -> door_config.current_scene = current_scene
-    | _ -> true  (* Joueur et autres entités toujours dessinés *)
+    | Door door_config -> door_config.current_scene = current_scene
+    | _ -> true
   with _ -> true
 
 let update _dt el =
@@ -38,6 +38,21 @@ let update _dt el =
        Gfx.set_color ctx white;
        Gfx.fill_rect ctx surface offset_x offset_y house_width house_height
    | Scene.Town -> ());
+  if Cst.debug_draw_grid then begin
+    let cell = Cst.aabb_cell_size in
+    let grid_color = Gfx.color 180 180 180 120 in
+    Gfx.set_color ctx grid_color;
+    let x = ref 0 in
+    while !x <= ww do
+      Gfx.fill_rect ctx surface !x 0 1 wh;
+      x := !x + cell
+    done;
+    let y = ref 0 in
+    while !y <= wh do
+      Gfx.fill_rect ctx surface 0 !y ww 1;
+      y := !y + cell
+    done
+  end;
   Seq.iter (fun (e:t) ->
     if should_draw e then (
       let pos = e#position#get in
@@ -45,5 +60,4 @@ let update _dt el =
       let txt = e#texture#get in
       Texture.draw ctx surface pos box txt
     )
-  ) el;
-  Gfx.commit ctx
+  ) el
