@@ -44,9 +44,8 @@ let close_dialogue state =
   state.current_dialogue <- None
 
 let intro_wake_up = create_dialogue [
-  { speaker = "Moi"; text = "Aujourd'hui c'est mon premier jour a l'ecole de magie !" };
-  { speaker = "Moi"; text = "Je vais enfin pouvoir realiser mon reve de devenir" };
-  { speaker = "Moi"; text = "chevalier d'OCamlon !" };
+  { speaker = "Moi"; text = "Aujourd'hui c'est mon premier jour\na l'ecole de magie !" };
+  { speaker = "Moi"; text = "Je vais enfin pouvoir realiser\nmon reve de devenir chevalier d'OCamlon !" };
 ]
 
 let npc_villager_1 = create_dialogue [
@@ -57,7 +56,7 @@ let npc_villager_1 = create_dialogue [
 
 let npc_villager_2 = create_dialogue [
   { speaker = "Marchande"; text = "Bienvenue dans notre belle ville !" };
-  { speaker = "Marchande"; text = "Si tu as besoin de quoi que ce soit, n'hesite pas." };
+  { speaker = "Marchande"; text = "Si tu as besoin de quoi que ce soit,\nn'hesite pas." };
 ]
 
 let npc_guard = create_dialogue [

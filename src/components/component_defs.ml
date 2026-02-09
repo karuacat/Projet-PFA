@@ -123,6 +123,7 @@ class type npc_entity =
     inherit box
     inherit texture
     inherit tagged
+    inherit resolver
     inherit npc_component
   end
 
@@ -133,6 +134,7 @@ class type sign_entity =
     inherit box
     inherit texture
     inherit tagged
+    inherit resolver
     inherit sign_component
   end
 

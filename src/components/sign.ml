@@ -9,6 +9,7 @@ let create_sign x y (sign_data : sign_data) scene =
     inherit box ()
     inherit texture ()
     inherit tagged ()
+    inherit resolver ()
     inherit sign_component ()
   end in
   
@@ -17,8 +18,10 @@ let create_sign x y (sign_data : sign_data) scene =
   sign#texture#set (Texture.Color (Gfx.color 139 90 43 255));
   sign#tag#set (InScene scene);
   sign#sign_data#set sign_data;
+  sign#resolve#set (fun _ _ -> ());
   
   Draw_system.(register (sign :> t));
+  Collision_system.register (sign :> Collision.t);
   
   Interaction.register_sign sign;
   

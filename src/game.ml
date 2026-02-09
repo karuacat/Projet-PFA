@@ -9,7 +9,6 @@ let update dt =
   let () = Input.handle_input () in
   
   let () = Tutorial_manager.check_scene_tutorials () in
-  let () = Tutorial_manager.show_next_tutorial_town () in
   
   Move_system.update dt;
   Collision_system.update dt;
@@ -68,10 +67,9 @@ let run () =
   let dialogue_state = Dialogue.create_state () in
   let tutorial_state = Tutorial.create_state () in
   
-  Tutorial.register_message tutorial_state "move" "Utiliser \"ZQSD\" pour se deplacer";
-  Tutorial.register_message tutorial_state "menu" "Utiliser \"Echap\" pour ouvrir le menu";
-  Tutorial.register_message tutorial_state "interact_npc" "Utilisez \"ESPACE\" ou clic gauche pour interagir avec un PNJ";
-  Tutorial.register_message tutorial_state "interact_sign" "Utilisez \"ESPACE\" ou clic gauche pour lire un panneau";
+  Tutorial.register_message tutorial_state "move" "Utiliser \"ZQSD\"\npour se deplacer";
+  Tutorial.register_message tutorial_state "menu" "Utiliser \"Echap\"\npour ouvrir le menu";
+  Tutorial.register_message tutorial_state "interact" "Utilisez \"ESPACE\"\npour interagir";
   
   let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font } in
   Global.set global;

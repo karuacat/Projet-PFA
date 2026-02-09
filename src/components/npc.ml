@@ -9,6 +9,7 @@ let create_npc name x y (npc_data : npc_data) scene =
     inherit box ()
     inherit texture ()
     inherit tagged ()
+    inherit resolver ()
     inherit npc_component ()
   end in
   
@@ -17,8 +18,10 @@ let create_npc name x y (npc_data : npc_data) scene =
   npc#texture#set (Texture.Color (Gfx.color 200 150 100 255));
   npc#tag#set (InScene scene);
   npc#npc_data#set npc_data;
+  npc#resolve#set (fun _ _ -> ());
   
   Draw_system.(register (npc :> t));
+  Collision_system.register (npc :> Collision.t);
   Interaction.register_npc npc;
   
   npc

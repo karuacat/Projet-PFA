@@ -8,7 +8,10 @@ let init _ = ()
 let cached_speaker = ref ""
 let cached_text = ref ""
 let cached_speaker_surf = ref None
-let cached_text_surf = ref None
+let cached_text_lines = ref []
+
+let split_text text =
+  String.split_on_char '\n' text
 
 let update (_ : float) (_ : t Seq.t) =
   let global = Global.get () in
@@ -50,20 +53,26 @@ let update (_ : float) (_ : t Seq.t) =
           end
         in
         
-        let text_surf = 
-          if !cached_text = line.text && !cached_text_surf <> None then
-            match !cached_text_surf with Some s -> s | None -> assert false
+        let text_lines = 
+          if !cached_text = line.text && !cached_text_lines <> [] then
+            !cached_text_lines
           else begin
             Gfx.set_color ctx (Gfx.color 255 255 255 255);
-            let surf = Gfx.render_text ctx line.text font in
+            let lines = split_text line.text in
+            let surfs = List.map (fun line_text -> Gfx.render_text ctx line_text font) lines in
             cached_text := line.text;
-            cached_text_surf := Some surf;
-            surf
+            cached_text_lines := surfs;
+            surfs
           end
         in
         
         Gfx.blit ctx surface speaker_surf (box_x + 10) (box_y + 10);
-        Gfx.blit ctx surface text_surf (box_x + 10) (box_y + 40);
+        
+        let line_height = 20 in
+        let _ = List.fold_left (fun y_offset text_surf ->
+          Gfx.blit ctx surface text_surf (box_x + 10) (box_y + 40 + y_offset);
+          y_offset + line_height
+        ) 0 text_lines in
         
         let indicator_size = 10 in
         let indicator_x = box_x + box_width - 20 in
@@ -77,5 +86,5 @@ let update (_ : float) (_ : t Seq.t) =
     cached_speaker := "";
     cached_text := "";
     cached_speaker_surf := None;
-    cached_text_surf := None
+    cached_text_lines := []
   end

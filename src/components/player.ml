@@ -15,12 +15,12 @@ let player (name, x, y, txt, width, height) =
           e#velocity#set Vector.zero;
           e#position#set (Vector.add e#position#get v)
         | Door _ ->
-          ()
+          ()     
       | _ -> ()
     );
-  Draw_system.(register (e :> t));
-  Collision_system.(register (e :> t));
   Move_system.(register (e :> t));
+  Collision_system.(register (e :> t));
+  Draw_system.(register (e :> t));
   e
 
 let players () =

@@ -6,7 +6,10 @@ type t = Entity.t
 let init _ = ()
 
 let cached_text = ref ""
-let cached_text_surf = ref None
+let cached_text_lines = ref []
+
+let split_text text =
+  String.split_on_char '\n' text
 
 let update (_ : float) (_ : t Seq.t) =
   let global = Global.get () in
@@ -19,10 +22,27 @@ let update (_ : float) (_ : t Seq.t) =
     match Tutorial.current_message tutorial_state with
     | None -> ()
     | Some text ->
+        let font = global.font in
+        
+        let text_lines = 
+          if !cached_text = text && !cached_text_lines <> [] then
+            !cached_text_lines
+          else begin
+            Gfx.set_color ctx (Gfx.color 255 255 255 255);
+            let lines = split_text text in
+            let surfs = List.map (fun line_text -> Gfx.render_text ctx line_text font) lines in
+            cached_text := text;
+            cached_text_lines := surfs;
+            surfs
+          end
+        in
+        
         let box_x = 10 in
         let box_y = 10 in
         let box_width = 400 in
-        let box_height = 50 in
+        let line_height = 20 in
+        let num_lines = List.length text_lines in
+        let box_height = 30 + (num_lines * line_height) in
         
         Gfx.set_color ctx (Gfx.color 40 40 60 220);
         Gfx.fill_rect ctx surface box_x box_y box_width box_height;
@@ -34,21 +54,10 @@ let update (_ : float) (_ : t Seq.t) =
         Gfx.fill_rect ctx surface box_x box_y border_thickness box_height;
         Gfx.fill_rect ctx surface (box_x + box_width - border_thickness) box_y border_thickness box_height;
     
-        let font = global.font in
-        
-        let text_surf = 
-          if !cached_text = text && !cached_text_surf <> None then
-            match !cached_text_surf with Some s -> s | None -> assert false
-          else begin
-            Gfx.set_color ctx (Gfx.color 255 255 255 255);
-            let surf = Gfx.render_text ctx text font in
-            cached_text := text;
-            cached_text_surf := Some surf;
-            surf
-          end
-        in
-        
-        Gfx.blit ctx surface text_surf (box_x + 10) (box_y + 15);
+        let _ = List.fold_left (fun y_offset text_surf ->
+          Gfx.blit ctx surface text_surf (box_x + 10) (box_y + 15 + y_offset);
+          y_offset + line_height
+        ) 0 text_lines in
         
         let dot_size = 6 in
         let dot_x = box_x + box_width - 15 in
@@ -57,5 +66,5 @@ let update (_ : float) (_ : t Seq.t) =
         Gfx.fill_rect ctx surface dot_x dot_y dot_size dot_size
   else begin
     cached_text := "";
-    cached_text_surf := None
+    cached_text_lines := []
   end
