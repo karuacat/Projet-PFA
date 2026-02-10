@@ -29,7 +29,7 @@ let update dt =
 
 let run () =
   let window_spec =
-    Format.sprintf "game_canvas:%dx%d:"
+    Format.sprintf "OCaml Quest:%dx%d:"
       Cst.window_width Cst.window_height
   in
   let window = Gfx.create window_spec in
