@@ -25,6 +25,7 @@ let update _dt el =
   let current_scene = Scene.current () in
   let bg = match current_scene with
     | Scene.Menu -> black
+    | Scene.CharacterCreation -> black
     | Scene.House -> black
     | Scene.Town -> white
   in
@@ -32,6 +33,7 @@ let update _dt el =
   Gfx.fill_rect ctx surface 0 0 ww wh;
   (match current_scene with
    | Scene.Menu -> ()
+   | Scene.CharacterCreation -> ()
    | Scene.House ->
        let house_width = Cst.window_width / 2 in
        let house_height = Cst.window_height / 2 in

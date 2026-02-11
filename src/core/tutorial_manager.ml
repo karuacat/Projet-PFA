@@ -10,6 +10,7 @@ let check_scene_tutorials () =
     
     match current_scene with
     | Scene.Menu -> ()
+    | Scene.CharacterCreation -> ()
     | Scene.House -> ()
     | Scene.Town ->
         if not !town_interact_tutorial_shown then begin

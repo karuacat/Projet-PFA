@@ -21,20 +21,28 @@ let update dt =
       Gfx.commit global.ctx;
       None
   | None ->
-      let () = Player.stop_player () in
-      let () = Input.handle_input () in
-      
-      let () = Tutorial_manager.check_scene_tutorials () in
-      
-      Move_system.update dt;
-      Collision_system.update dt;
-      Door_transition_system.update dt;
-      Draw_system.update dt;
-      Tutorial_system.update dt;
-      Dialogue_system.update dt;
-      
-      Gfx.commit global.ctx;
-      None
+      match global.character_creation_state with
+      | Some char_state ->
+          let () = Input.handle_input () in
+          Character_creation_system.update () |> ignore;
+          Character_creation_system.draw () |> ignore;
+          Gfx.commit global.ctx;
+          None
+      | None ->
+          let () = Player.stop_player () in
+          let () = Input.handle_input () in
+          
+          let () = Tutorial_manager.check_scene_tutorials () in
+          
+          Move_system.update dt;
+          Collision_system.update dt;
+          Door_transition_system.update dt;
+          Draw_system.update dt;
+          Tutorial_system.update dt;
+          Dialogue_system.update dt;
+          
+          Gfx.commit global.ctx;
+          None
 
 let run () =
   let window_spec =
@@ -81,12 +89,21 @@ let run () =
   Tutorial.register_message tutorial_state "interact" "Utilisez \"ESPACE\"\npour interagir";
   
   let menu = Menu.create () in
-  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu } in
+  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None } in
   Global.set global;
   
   let rec start_new_game () =
-    Scene.set_scene Scene.House;
+    let char_creation = Character_creation.create () in
     global.menu_state <- None;
+    global.character_creation_state <- Some char_creation;
+    global.on_character_complete <- Some finish_character_creation;
+    Scene.set_scene Scene.CharacterCreation;
+    Input.invalidate_caches ();
+  
+  and finish_character_creation () =
+    Scene.set_scene Scene.House;
+    global.character_creation_state <- None;
+    global.on_character_complete <- None;
     Input.invalidate_caches ();
     Dialogue.start_dialogue dialogue_state Dialogue.intro_wake_up;
   

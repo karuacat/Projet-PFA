@@ -1,5 +1,6 @@
 type scene =
   | Menu
+  | CharacterCreation
   | House
   | Town
 
@@ -12,5 +13,6 @@ let set_scene s = scene_ref := s
 let get_scene_dimensions () =
   match !scene_ref with
   | Menu -> (Cst.window_width, Cst.window_height)
+  | CharacterCreation -> (Cst.window_width, Cst.window_height)
   | House -> (Cst.window_width / 2, Cst.window_height / 2)
   | Town -> (Cst.window_width, Cst.window_height)

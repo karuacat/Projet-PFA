@@ -1,5 +1,6 @@
 type scene =
   | Menu
+  | CharacterCreation
   | House
   | Town
 

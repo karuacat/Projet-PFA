@@ -9,6 +9,8 @@ type t = {
   tutorial_state : Tutorial.tutorial_state;
   font : Gfx.font;
   mutable menu_state : Menu.menu option;
+  mutable character_creation_state : Character_creation.state option;
+  mutable on_character_complete : (unit -> unit) option;
 }
 
 let state = ref None

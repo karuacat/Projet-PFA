@@ -87,15 +87,48 @@ let handle_interaction () =
       | None ->
           ()
 
+let is_backspace_key s =
+  let lower = String.lowercase_ascii s in
+  String.length lower > 0 && (
+    String.starts_with ~prefix:"back" lower ||
+    String.starts_with ~prefix:"delete" lower ||
+    String.starts_with ~prefix:"del" lower
+  )
+
+let is_return_key s =
+  let lower = String.lowercase_ascii s in
+  String.length lower > 0 && (
+    String.starts_with ~prefix:"return" lower ||
+    String.starts_with ~prefix:"enter" lower ||
+    String.starts_with ~prefix:"kp" lower
+  )
+
 let rec handle_input () =
   let () =
     match Gfx.poll_event () with
       KeyDown s -> 
         if not (has_key s) then
           Hashtbl.replace key_pressed_table s ();
-        set_key s; 
+        set_key s;
+        let global = get_global_cached () in
+        (match global.character_creation_state with
+         | Some char_state when char_state.input_focused ->
+             if is_backspace_key s then
+               Character_creation.remove_character char_state
+             else if String.length s = 1 && 
+                     Char.code s.[0] >= 32 && Char.code s.[0] <= 126 then
+               Character_creation.add_character char_state s.[0]
+         | _ -> ());
+        (match global.character_creation_state with
+         | Some char_state when is_return_key s && Character_creation.is_complete char_state ->
+             (match global.on_character_complete with
+              | Some callback -> callback ()
+              | None -> ())
+         | _ -> ());
         handle_input ()
-    | KeyUp s -> unset_key s; handle_input ()
+    | KeyUp s -> 
+        unset_key s;
+        handle_input ()
     | MouseMove (x, y) ->
         let global = get_global_cached () in
         (match global.menu_state with
@@ -108,13 +141,48 @@ let rec handle_input () =
     | MouseButton (_, pressed, x, y) -> 
         if pressed then begin
           let global = get_global_cached () in
+          let x', y' = convert_mouse_coords x y in
           match global.menu_state with
           | Some menu ->
-              let x', y' = convert_mouse_coords x y in
               Menu.set_mouse_position menu x' y';
               Menu.update_hover menu;
               Menu.click_button menu
-          | None -> ()
+          | None ->
+              (match global.character_creation_state with
+               | Some char_state ->
+                   let button_y = 170 in
+                   let button_width = 150 in
+                   let button_height = 60 in
+                   
+                   if x' >= 150 && x' <= 150 + button_width && 
+                      y' >= button_y && y' <= button_y + button_height then
+                     Character_creation.set_gender char_state Character_creation.Male
+                   else if x' >= 450 && x' <= 450 + button_width &&
+                           y' >= button_y && y' <= button_y + button_height then
+                     Character_creation.set_gender char_state Character_creation.Female
+                   else if Character_creation.is_complete char_state then begin
+                     let button_width = 200 in
+                     let input_y = 340 in
+                     let continue_button_y = input_y + 100 in
+                     let button_x = (Cst.window_width - button_width) / 2 in
+                     if x' >= button_x && x' <= button_x + button_width &&
+                        y' >= continue_button_y && y' <= continue_button_y + 60 then
+                       (match global.on_character_complete with
+                        | Some callback -> callback ()
+                        | None -> ())
+                   end
+                   else begin
+                     let input_x = (Cst.window_width - 300) / 2 in
+                     let input_y = 340 in
+                     let input_width = 300 in
+                     let input_height = 50 in
+                     let focused = 
+                       x' >= input_x && x' <= input_x + input_width &&
+                       y' >= input_y && y' <= input_y + input_height
+                     in
+                     Character_creation.set_input_focused char_state focused
+                   end
+               | None -> ())
         end;
         handle_input ()
     | Quit -> exit 0
