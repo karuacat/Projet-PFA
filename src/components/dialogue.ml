@@ -19,10 +19,12 @@ let next_line state =
   match state.current_dialogue with
   | None -> ()
   | Some dialogue ->
-      if dialogue.current_line < List.length dialogue.lines - 1 then
+      if dialogue.current_line < List.length dialogue.lines - 1 then begin
         dialogue.current_line <- dialogue.current_line + 1
-      else
-        state.active <- false
+      end else begin
+        state.active <- false;
+        state.current_dialogue <- None
+      end
 
 let current_line state =
   match state.current_dialogue with

@@ -24,12 +24,14 @@ let update _dt el =
   let ww, wh = Gfx.get_context_logical_size ctx in
   let current_scene = Scene.current () in
   let bg = match current_scene with
+    | Scene.Menu -> black
     | Scene.House -> black
     | Scene.Town -> white
   in
   Gfx.set_color ctx bg;
   Gfx.fill_rect ctx surface 0 0 ww wh;
   (match current_scene with
+   | Scene.Menu -> ()
    | Scene.House ->
        let house_width = Cst.window_width / 2 in
        let house_height = Cst.window_height / 2 in

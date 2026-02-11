@@ -1,4 +1,5 @@
 type scene =
+  | Menu
   | House
   | Town
 

@@ -5,18 +5,6 @@ open Ecs
 let global_cache = ref None
 
 let update dt =
-  let () = Player.stop_player () in
-  let () = Input.handle_input () in
-  
-  let () = Tutorial_manager.check_scene_tutorials () in
-  
-  Move_system.update dt;
-  Collision_system.update dt;
-  Door_transition_system.update dt;
-  Draw_system.update dt;
-  Tutorial_system.update dt;
-  Dialogue_system.update dt;
-  
   let global = match !global_cache with
     | Some g -> g
     | None ->
@@ -24,8 +12,29 @@ let update dt =
         global_cache := Some g;
         g
   in
-  Gfx.commit global.ctx;
-  None
+  
+  match global.menu_state with
+  | Some menu ->
+      let () = Input.handle_input () in
+      Menu_system.update () |> ignore;
+      Menu_system.draw () |> ignore;
+      Gfx.commit global.ctx;
+      None
+  | None ->
+      let () = Player.stop_player () in
+      let () = Input.handle_input () in
+      
+      let () = Tutorial_manager.check_scene_tutorials () in
+      
+      Move_system.update dt;
+      Collision_system.update dt;
+      Door_transition_system.update dt;
+      Draw_system.update dt;
+      Tutorial_system.update dt;
+      Dialogue_system.update dt;
+      
+      Gfx.commit global.ctx;
+      None
 
 let run () =
   let window_spec =
@@ -71,9 +80,30 @@ let run () =
   Tutorial.register_message tutorial_state "menu" "Utiliser \"Echap\"\npour ouvrir le menu";
   Tutorial.register_message tutorial_state "interact" "Utilisez \"ESPACE\"\npour interagir";
   
-  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font } in
+  let menu = Menu.create () in
+  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu } in
   Global.set global;
   
-  Dialogue.start_dialogue dialogue_state Dialogue.intro_wake_up;
+  let rec start_new_game () =
+    Scene.set_scene Scene.House;
+    global.menu_state <- None;
+    Input.invalidate_caches ();
+    Dialogue.start_dialogue dialogue_state Dialogue.intro_wake_up;
+  
+  and start_continue () =
+    Scene.set_scene Scene.House;
+    global.menu_state <- None;
+    Input.invalidate_caches ();
+  
+  and open_options () =
+    Menu.setup_options_menu menu (fun () ->
+      setup_main_menu ()
+    )
+  
+  and setup_main_menu () =
+    Menu.setup_main_menu menu start_new_game start_continue open_options (fun () -> exit 0)
+  in
+  
+  setup_main_menu ();
   
   Gfx.main_loop update (fun () -> ())

@@ -35,13 +35,23 @@ let get_player_cached () =
 
 let invalidate_caches () =
   global_cache := None;
-  player_cache := None
+  player_cache := None;
+  Hashtbl.clear key_table;
+  Hashtbl.clear key_pressed_table
 
 let distance_sq v1 v2 =
   let dx = Vector.sub v1 v2 in
   Vector.dot dx dx
 
 let mouse_clicked = ref false
+
+let convert_mouse_coords x y =
+  let global = get_global_cached () in
+  let window_width, window_height = Gfx.get_window_size global.window in
+  let logical_width, logical_height = Gfx.get_context_logical_size global.ctx in
+  let scale_x = float_of_int logical_width /. float_of_int window_width in
+  let scale_y = float_of_int logical_height /. float_of_int window_height in
+  (int_of_float (float_of_int x *. scale_x), int_of_float (float_of_int y *. scale_y))
 
 let handle_interaction () =
   let global = get_global_cached () in
@@ -52,13 +62,13 @@ let handle_interaction () =
   let player_box = player#box#get in
 
   if dialogue_state.active then begin
-    if Dialogue.is_finished dialogue_state then begin
-      Dialogue.close_dialogue dialogue_state;
+    let was_finished = Dialogue.is_finished dialogue_state in
+    Dialogue.next_line dialogue_state;
+    if was_finished then begin
       let current_scene = Scene.current () in
       if current_scene = Scene.House then
         Tutorial.show_message tutorial_state "move"
-    end else
-      Dialogue.next_line dialogue_state
+    end
   end
   else match Interaction.find_npc_at player_pos player_box with
   | Some npc ->
@@ -86,7 +96,27 @@ let rec handle_input () =
         set_key s; 
         handle_input ()
     | KeyUp s -> unset_key s; handle_input ()
-    | MouseButton _ -> handle_input ()
+    | MouseMove (x, y) ->
+        let global = get_global_cached () in
+        (match global.menu_state with
+         | Some menu ->
+             let x', y' = convert_mouse_coords x y in
+             Menu.set_mouse_position menu x' y';
+             Menu.update_hover menu
+         | None -> ());
+        handle_input ()
+    | MouseButton (_, pressed, x, y) -> 
+        if pressed then begin
+          let global = get_global_cached () in
+          match global.menu_state with
+          | Some menu ->
+              let x', y' = convert_mouse_coords x y in
+              Menu.set_mouse_position menu x' y';
+              Menu.update_hover menu;
+              Menu.click_button menu
+          | None -> ()
+        end;
+        handle_input ()
     | Quit -> exit 0
     | _ -> ()
   in
@@ -97,7 +127,7 @@ let () =
   register "z" (fun () -> 
     let player = get_player_cached () in
     let global = get_global_cached () in
-    if not global.dialogue_state.active then begin
+    if not global.dialogue_state.active && global.menu_state = None then begin
       Player.move_player player Cst.player_v_up;
       Tutorial.complete_message global.tutorial_state "move"
     end
@@ -105,7 +135,7 @@ let () =
   register "s" (fun () -> 
     let player = get_player_cached () in
     let global = get_global_cached () in
-    if not global.dialogue_state.active then begin
+    if not global.dialogue_state.active && global.menu_state = None then begin
       Player.move_player player Cst.player_v_down;
       Tutorial.complete_message global.tutorial_state "move"
     end
@@ -113,7 +143,7 @@ let () =
   register "d" (fun () -> 
     let player = get_player_cached () in
     let global = get_global_cached () in
-    if not global.dialogue_state.active then begin
+    if not global.dialogue_state.active && global.menu_state = None then begin
       Player.move_player player Cst.player_v_right;
       Tutorial.complete_message global.tutorial_state "move"
     end
@@ -121,7 +151,7 @@ let () =
   register "q" (fun () -> 
     let player = get_player_cached () in
     let global = get_global_cached () in
-    if not global.dialogue_state.active then begin
+    if not global.dialogue_state.active && global.menu_state = None then begin
       Player.move_player player Cst.player_v_left;
       Tutorial.complete_message global.tutorial_state "move"
     end

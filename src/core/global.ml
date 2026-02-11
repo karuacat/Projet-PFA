@@ -8,6 +8,7 @@ type t = {
   dialogue_state : dialogue_state;
   tutorial_state : Tutorial.tutorial_state;
   font : Gfx.font;
+  mutable menu_state : Menu.menu option;
 }
 
 let state = ref None

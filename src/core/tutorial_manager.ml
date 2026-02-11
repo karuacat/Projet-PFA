@@ -9,8 +9,8 @@ let check_scene_tutorials () =
     last_scene := current_scene;
     
     match current_scene with
-    | Scene.House ->
-        ()
+    | Scene.Menu -> ()
+    | Scene.House -> ()
     | Scene.Town ->
         if not !town_interact_tutorial_shown then begin
           let global = Global.get () in
