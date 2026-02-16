@@ -19,3 +19,12 @@ val intro_wake_up : dialogue
 val npc_villager_1 : dialogue
 val npc_villager_2 : dialogue
 val npc_guard : dialogue
+
+val knight_guardian_intro : dialogue
+val knight_guardian_waiting : dialogue
+val knight_guardian_success : dialogue
+val knight_guardian_failure : dialogue
+val knight_guardian_admission_success : dialogue
+val knight_guardian_post_victory : dialogue
+
+val secret_book : dialogue

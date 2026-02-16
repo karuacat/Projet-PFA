@@ -19,4 +19,5 @@ let check_scene_tutorials () =
           Tutorial.show_message tutorial_state "interact";
           town_interact_tutorial_shown := true
         end
+    | Scene.Academy -> ()
   end

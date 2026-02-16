@@ -11,6 +11,8 @@ type t = {
   mutable menu_state : Menu.menu option;
   mutable character_creation_state : Character_creation.state option;
   mutable on_character_complete : (unit -> unit) option;
+  mutable code_challenge_state : Code_challenge.state option;
+  mutable knight_challenge_completed : bool;
 }
 
 let state = ref None

@@ -12,6 +12,7 @@ let cached_text_lines = ref []
 
 let split_text text =
   String.split_on_char '\n' text
+  |> List.filter (fun line -> String.length (String.trim line) > 0)
 
 let update (_ : float) (_ : t Seq.t) =
   let global = Global.get () in

@@ -8,7 +8,7 @@ let init _ = ()
 let last_player_pos = ref Vector.zero
 
 let check_door_collision doors =
-  let Global.{player; _} = Global.get () in
+  let Global.{player; tutorial_state; _} = Global.get () in
   let p_pos : Vector.t = player#position#get in
   
   if Vector.equal !last_player_pos p_pos then
@@ -45,7 +45,12 @@ let check_door_collision doors =
                   x = float door_config.player_spawn_x;
                   y = float door_config.player_spawn_y;
                 };
-                last_player_pos := player#position#get
+                last_player_pos := player#position#get;
+                (match door_config.target_scene with
+                 | Scene.Town -> 
+                     Tutorial.show_message tutorial_state "town_explore";
+                     Tutorial.show_message tutorial_state "town_signs"
+                 | _ -> ())
               )
             )
         | _ -> ()

@@ -326,7 +326,9 @@ let render_text ctx txt f =
 let measure_text txt fnt = result @@ Tsdl_ttf.Ttf.size_utf8 fnt txt
 
 let get_key ev =
-  String.lowercase_ascii @@ Sdl.get_key_name Sdl.Event.(get ev keyboard_keycode)
+  let key_name = Sdl.get_key_name Sdl.Event.(get ev keyboard_keycode) in
+  (* Return lowercase - let input.ml handle Shift detection using the key table *)
+  String.lowercase_ascii key_name
 
 let queue = Queue.create ()
 

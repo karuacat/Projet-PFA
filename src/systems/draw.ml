@@ -28,6 +28,7 @@ let update _dt el =
     | Scene.CharacterCreation -> black
     | Scene.House -> black
     | Scene.Town -> white
+    | Scene.Academy -> white
   in
   Gfx.set_color ctx bg;
   Gfx.fill_rect ctx surface 0 0 ww wh;
@@ -41,7 +42,8 @@ let update _dt el =
        let offset_y = Cst.window_height / 4 in
        Gfx.set_color ctx white;
        Gfx.fill_rect ctx surface offset_x offset_y house_width house_height
-   | Scene.Town -> ());
+   | Scene.Town -> ()
+   | Scene.Academy -> ());
   if Cst.debug_draw_grid then begin
     let cell = Cst.aabb_cell_size in
     let grid_color = Gfx.color 180 180 180 120 in

@@ -7,6 +7,7 @@ let white = Color (Gfx.color 255 255 255 255)
 let red = Color (Gfx.color 255 0 0 255)
 let green = Color (Gfx.color 0 255 0 255)
 let blue = Color (Gfx.color 0 0 255 255)
+let grey = Color (Gfx.color 128 128 128 255)
 
 let yellow = Color (Gfx.color 255 255 0 255)
 let brown = Color (Gfx.color 139 69 19 255)
