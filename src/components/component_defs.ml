@@ -15,6 +15,18 @@ type dialogue_state = {
   mutable current_dialogue : dialogue option;
 }
 
+type dialogue_choice = {
+  choice_text : string;
+  choice_response : dialogue;
+  choice_next : dialogue option;
+}
+
+type choice_dialogue = {
+  question : dialogue_line;
+  choices : dialogue_choice list;
+  mutable selected_choice : int;
+}
+
 class position () =
   let r = Component.init Vector.zero in
   object

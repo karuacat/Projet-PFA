@@ -8,6 +8,33 @@ let init _ = ()
 
 let white = Gfx.color 255 255 255 255
 let black = Gfx.color 0 0 0 255
+let house_background : Gfx.surface Gfx.resource option ref = ref None
+let town_background : Gfx.surface Gfx.resource option ref = ref None
+let school_background : Gfx.surface Gfx.resource option ref = ref None
+
+let get_house_background ctx =
+  match !house_background with
+  | Some res -> res
+  | None ->
+      let res = Gfx.load_image ctx "ressources/scenes/House.png" in
+      house_background := Some res;
+      res
+
+let get_town_background ctx =
+  match !town_background with
+  | Some res -> res
+  | None ->
+      let res = Gfx.load_image ctx "ressources/scenes/Town.png" in
+      town_background := Some res;
+      res
+
+let get_school_background ctx =
+  match !school_background with
+  | Some res -> res
+  | None ->
+      let res = Gfx.load_image ctx "ressources/scenes/School.png" in
+      school_background := Some res;
+      res
 
 let should_draw entity =
   let current_scene = Scene.current () in
@@ -17,6 +44,17 @@ let should_draw entity =
     | Door door_config -> door_config.current_scene = current_scene
     | _ -> true
   with _ -> true
+
+let draw_player ctx surface (pos : Vector.t) txt =
+  let draw_pos = Vector.{
+    x = pos.x +. float_of_int Cst.player_render_offset_x;
+    y = pos.y +. float_of_int Cst.player_render_offset_y;
+  } in
+  let draw_box = Rect.{
+    width = Cst.player_render_width;
+    height = Cst.player_render_height;
+  } in
+  Texture.draw ctx surface draw_pos draw_box txt
 
 let update _dt el =
   let Global.{window; ctx; _} = Global.get () in
@@ -28,7 +66,7 @@ let update _dt el =
     | Scene.CharacterCreation -> black
     | Scene.House -> black
     | Scene.Town -> white
-    | Scene.Academy -> white
+    | Scene.School -> white
   in
   Gfx.set_color ctx bg;
   Gfx.fill_rect ctx surface 0 0 ww wh;
@@ -36,14 +74,20 @@ let update _dt el =
    | Scene.Menu -> ()
    | Scene.CharacterCreation -> ()
    | Scene.House ->
-       let house_width = Cst.window_width / 2 in
-       let house_height = Cst.window_height / 2 in
-       let offset_x = Cst.window_width / 4 in
-       let offset_y = Cst.window_height / 4 in
-       Gfx.set_color ctx white;
-       Gfx.fill_rect ctx surface offset_x offset_y house_width house_height
-   | Scene.Town -> ()
-   | Scene.Academy -> ());
+       let house_bg = get_house_background ctx in
+       (match Gfx.get_resource_opt house_bg with
+       | Some img -> Gfx.blit_scale ctx surface img Cst.house_offset_x Cst.house_offset_y Cst.house_width Cst.house_height
+      | None -> ())
+     | Scene.Town ->
+       let town_bg = get_town_background ctx in
+       (match Gfx.get_resource_opt town_bg with
+       | Some img -> Gfx.blit_scale ctx surface img 0 0 Cst.window_width Cst.window_height
+       | None -> ())
+       | Scene.School ->
+         let school_bg = get_school_background ctx in
+         (match Gfx.get_resource_opt school_bg with
+         | Some img -> Gfx.blit_scale ctx surface img 0 0 Cst.window_width Cst.window_height
+         | None -> ()));
   if Cst.debug_draw_grid then begin
     let cell = Cst.aabb_cell_size in
     let grid_color = Gfx.color 180 180 180 120 in
@@ -59,11 +103,22 @@ let update _dt el =
       y := !y + cell
     done
   end;
-  Seq.iter (fun (e:t) ->
-    if should_draw e then (
-      let pos = e#position#get in
-      let box = e#box#get in
-      let txt = e#texture#get in
-      Texture.draw ctx surface pos box txt
-    )
-  ) el
+  let drawables =
+    el
+    |> Seq.filter should_draw
+    |> List.of_seq
+  in
+  let z_of (e:t) =
+    let pos = e#position#get in
+    let box = e#box#get in
+    pos.Vector.y +. float_of_int box.Rect.height
+  in
+  let drawables = List.sort (fun a b -> Float.compare (z_of a) (z_of b)) drawables in
+  List.iter (fun (e:t) ->
+    let pos = e#position#get in
+    let box = e#box#get in
+    let txt = e#texture#get in
+    match e#tag#get with
+    | Player -> draw_player ctx surface pos txt
+    | _ -> Texture.draw ctx surface pos box txt
+  ) drawables

@@ -10,9 +10,32 @@ let cached_text = ref ""
 let cached_speaker_surf = ref None
 let cached_text_lines = ref []
 
-let split_text text =
+let wrap_line_to_width ctx font max_width line =
+  let words =
+    String.split_on_char ' ' line
+    |> List.filter (fun w -> String.length (String.trim w) > 0)
+  in
+  let rec loop current acc = function
+    | [] ->
+        if String.length current > 0 then List.rev (current :: acc) else List.rev acc
+    | w :: ws ->
+        let candidate = if String.length current = 0 then w else current ^ " " ^ w in
+        let surf = Gfx.render_text ctx candidate font in
+        let width, _ = Gfx.surface_size surf in
+        if width <= max_width then
+          loop candidate acc ws
+        else if String.length current = 0 then
+          loop "" (w :: acc) ws
+        else
+          loop w (current :: acc) ws
+  in
+  loop "" [] words
+
+let split_text ctx font max_width text =
   String.split_on_char '\n' text
   |> List.filter (fun line -> String.length (String.trim line) > 0)
+  |> List.map (wrap_line_to_width ctx font max_width)
+  |> List.flatten
 
 let update (_ : float) (_ : t Seq.t) =
   let global = Global.get () in
@@ -23,9 +46,9 @@ let update (_ : float) (_ : t Seq.t) =
     let surface = Gfx.get_surface global.window in
     
     let box_x = 50 in
-    let box_y = Cst.window_height - 150 in
+    let box_y = Cst.window_height - 170 in
     let box_width = Cst.window_width - 100 in
-    let box_height = 100 in
+    let box_height = 120 in
     
     Gfx.set_color ctx (Gfx.color 20 20 40 255);
     Gfx.fill_rect ctx surface box_x box_y box_width box_height;
@@ -59,7 +82,7 @@ let update (_ : float) (_ : t Seq.t) =
             !cached_text_lines
           else begin
             Gfx.set_color ctx (Gfx.color 255 255 255 255);
-            let lines = split_text line.text in
+            let lines = split_text ctx font (box_width - 24) line.text in
             let surfs = List.map (fun line_text -> Gfx.render_text ctx line_text font) lines in
             cached_text := line.text;
             cached_text_lines := surfs;
@@ -71,7 +94,7 @@ let update (_ : float) (_ : t Seq.t) =
         
         let line_height = 20 in
         let _ = List.fold_left (fun y_offset text_surf ->
-          Gfx.blit ctx surface text_surf (box_x + 10) (box_y + 40 + y_offset);
+          Gfx.blit ctx surface text_surf (box_x + 10) (box_y + 38 + y_offset);
           y_offset + line_height
         ) 0 text_lines in
         

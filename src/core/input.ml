@@ -43,8 +43,6 @@ let distance_sq v1 v2 =
   let dx = Vector.sub v1 v2 in
   Vector.dot dx dx
 
-let mouse_clicked = ref false
-
 let convert_mouse_coords x y =
   let global = get_global_cached () in
   let window_width, window_height = Gfx.get_window_size global.window in
@@ -92,19 +90,46 @@ let handle_interaction () =
       match Interaction.find_sign_at player_pos player_box with
       | Some sign ->
           let data = sign#sign_data#get in
-          let dialogue_to_show = 
-            if data.title = "Livre Ancien" then
-              Dialogue.secret_book
+          let dialogue_to_show =
+            if data.title = "Coffre de l'Apprenti" && not global.house_exit_attempted then
+              None
+            else if data.title = "Livre Ancien" then
+              let sign_pos = sign#position#get in
+              let sign_box = sign#box#get in
+              let player_center = Vector.{
+                x = player_pos.x +. (float_of_int player_box.width /. 2.0);
+                y = player_pos.y +. (float_of_int player_box.height /. 2.0);
+              } in
+              let sign_center = Vector.{
+                x = sign_pos.x +. (float_of_int sign_box.width /. 2.0);
+                y = sign_pos.y +. (float_of_int sign_box.height /. 2.0);
+              } in
+              let near_book = distance_sq player_center sign_center <= (18.0 *. 18.0) in
+              if not near_book then
+                None
+              else if not global.has_secret_book then (
+                global.has_secret_book <- true;
+                Some (Dialogue.create_dialogue [
+                  { Component_defs.speaker = "Moi"; text = "Je récupère le livre ancien." };
+                  { Component_defs.speaker = "Moi"; text = "Je peux l'utiliser avec E." };
+                ])
+              ) else
+                None
+            else if data.title = "Coffre de l'Apprenti" then
+              if global.chest_challenge_completed then Some Dialogue.chest_post_victory else Some Dialogue.chest_intro
             else
-              Dialogue.create_dialogue [
+              Some (Dialogue.create_dialogue [
                 { Component_defs.speaker = data.title; text = data.text }
-              ]
+              ])
           in
-          Dialogue.start_dialogue dialogue_state dialogue_to_show;
-          Tutorial.complete_message tutorial_state "interact";
-          let current_scene = Scene.current () in
-          if current_scene = Scene.Town then
-            Tutorial.complete_message tutorial_state "town_signs"
+          (match dialogue_to_show with
+           | Some dlg ->
+               Dialogue.start_dialogue dialogue_state dlg;
+               Tutorial.complete_message tutorial_state "interact";
+               let current_scene = Scene.current () in
+               if current_scene = Scene.Town then
+                 Tutorial.complete_message tutorial_state "town_signs"
+           | None -> ())
       | None ->
           ()
 
@@ -135,6 +160,9 @@ let is_ctrl_down () =
 let is_space_key s =
   let lower = String.lowercase_ascii s in
   String.length lower > 0 && String.starts_with ~prefix:"space" lower
+
+let is_tab_key s =
+  String.equal (String.lowercase_ascii s) "tab"
 
 let try_parse_special_char s =
   match s with
@@ -200,7 +228,12 @@ let rec handle_input () =
                               String.equal s "left alt" || String.equal s "right alt"
              in
              if not is_modifier then (
-               if is_backspace_key s then
+               if global.dialogue_state.active then (
+                 if is_space_key s || (is_return_key s && not (is_shift_pressed ())) then
+                   handle_interaction ()
+                 else if is_tab_key s then
+                   Code_challenge.close_challenge challenge_state
+               ) else if is_backspace_key s then
                  Code_challenge.remove_char challenge_state
                else if is_return_key s then (
                  let is_shift_return = is_shift_pressed () in
@@ -208,7 +241,7 @@ let rec handle_input () =
                    Code_challenge.add_char challenge_state '\n'
                  else
                    Code_challenge.submit_code challenge_state
-               ) else if String.starts_with ~prefix:"escape" s then
+               ) else if is_tab_key s then
                  Code_challenge.close_challenge challenge_state
                else if is_space_key s then
                  Code_challenge.add_char challenge_state ' '
@@ -229,7 +262,7 @@ let rec handle_input () =
                end
              )
          | _ -> ());
-        (if (String.lowercase_ascii s = "c" || String.lowercase_ascii s = "C") && not global.dialogue_state.active then
+        (if String.equal (String.lowercase_ascii s) "c" && not global.dialogue_state.active then
           let player = get_player_cached () in
           let player_pos = player#position#get in
           let player_box = player#box#get in
@@ -239,6 +272,10 @@ let rec handle_input () =
               if data.Component_defs.name = "Chevalier Gardien" then begin
                 match global.code_challenge_state with
                 | Some challenge_state when not challenge_state.Code_challenge.active ->
+                    let expected_name =
+                      if String.length global.player_name > 0 then global.player_name
+                      else "Apprenti"
+                    in
                     let on_success () =
                       global.knight_challenge_completed <- true;
                       Dialogue.start_dialogue global.dialogue_state Dialogue.knight_guardian_admission_success
@@ -247,10 +284,28 @@ let rec handle_input () =
                       Dialogue.start_dialogue global.dialogue_state Dialogue.knight_guardian_failure
                     in
                     Code_challenge.start_challenge challenge_state 
-                      (Code_challenge.StringVariable "admission") on_success on_failure
+                      (Code_challenge.StringVariable ("nom", expected_name)) on_success on_failure
                 | _ -> ()
               end
-          | None -> ()
+          | None ->
+              (match Interaction.find_sign_at player_pos player_box with
+               | Some sign ->
+                   let data = sign#sign_data#get in
+                   if data.Component_defs.title = "Coffre de l'Apprenti" && global.house_exit_attempted then begin
+                     match global.code_challenge_state with
+                     | Some challenge_state when not challenge_state.Code_challenge.active ->
+                         let on_success () =
+                           global.chest_challenge_completed <- true;
+                           Dialogue.start_dialogue global.dialogue_state Dialogue.chest_success
+                         in
+                         let on_failure () =
+                           Dialogue.start_dialogue global.dialogue_state Dialogue.chest_failure
+                         in
+                         Code_challenge.start_challenge challenge_state
+                           (Code_challenge.BoolVariable ("cles", true)) on_success on_failure
+                     | _ -> ()
+                   end
+               | None -> ())
         );
         handle_input ()
     | KeyUp s -> 
@@ -277,19 +332,21 @@ let rec handle_input () =
           | None ->
               (match global.character_creation_state with
                | Some char_state ->
-                   let button_y = 170 in
-                   let button_width = 150 in
-                   let button_height = 60 in
+                 let card_y = 150 in
+                 let card_width = 200 in
+                 let card_height = 140 in
+                 let male_x = 130 in
+                 let female_x = Cst.window_width - male_x - card_width in
                    
-                   if x' >= 150 && x' <= 150 + button_width && 
-                      y' >= button_y && y' <= button_y + button_height then
+                 if x' >= male_x && x' <= male_x + card_width && 
+                   y' >= card_y && y' <= card_y + card_height then
                      Character_creation.set_gender char_state Character_creation.Male
-                   else if x' >= 450 && x' <= 450 + button_width &&
-                           y' >= button_y && y' <= button_y + button_height then
+                 else if x' >= female_x && x' <= female_x + card_width &&
+                      y' >= card_y && y' <= card_y + card_height then
                      Character_creation.set_gender char_state Character_creation.Female
                    else if Character_creation.is_complete char_state then begin
                      let button_width = 200 in
-                     let input_y = 340 in
+                     let input_y = 370 in
                      let continue_button_y = input_y + 100 in
                      let button_x = (Cst.window_width - button_width) / 2 in
                      if x' >= button_x && x' <= button_x + button_width &&
@@ -299,10 +356,10 @@ let rec handle_input () =
                         | None -> ())
                    end
                    else begin
-                     let input_x = (Cst.window_width - 300) / 2 in
-                     let input_y = 340 in
-                     let input_width = 300 in
-                     let input_height = 50 in
+                     let input_x = (Cst.window_width - 420) / 2 in
+                     let input_y = 370 in
+                     let input_width = 420 in
+                     let input_height = 60 in
                      let focused = 
                        x' >= input_x && x' <= input_x + input_width &&
                        y' >= input_y && y' <= input_y + input_height
@@ -333,6 +390,9 @@ let () =
     if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
       Player.move_player player Cst.player_v_up;
       Tutorial.complete_message global.tutorial_state "move"
+      ;
+      if Scene.current () = Scene.House then
+        Tutorial.show_message global.tutorial_state "menu"
     end
   );
   register "s" (fun () -> 
@@ -349,6 +409,9 @@ let () =
     if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
       Player.move_player player Cst.player_v_down;
       Tutorial.complete_message global.tutorial_state "move"
+      ;
+      if Scene.current () = Scene.House then
+        Tutorial.show_message global.tutorial_state "menu"
     end
   );
   register "d" (fun () -> 
@@ -365,6 +428,9 @@ let () =
     if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
       Player.move_player player Cst.player_v_right;
       Tutorial.complete_message global.tutorial_state "move"
+      ;
+      if Scene.current () = Scene.House then
+        Tutorial.show_message global.tutorial_state "menu"
     end
   );
   register "q" (fun () -> 
@@ -381,6 +447,9 @@ let () =
     if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
       Player.move_player player Cst.player_v_left;
       Tutorial.complete_message global.tutorial_state "move"
+      ;
+      if Scene.current () = Scene.House then
+        Tutorial.show_message global.tutorial_state "menu"
     end
   );
   
@@ -394,13 +463,43 @@ let () =
         if was_key_just_pressed "space" then
           handle_interaction ()
   );
+
+  register "e" (fun () ->
+    let global = get_global_cached () in
+    let is_typing =
+      (match global.character_creation_state with
+       | Some char_state -> char_state.input_focused
+       | None -> false)
+      || (match global.code_challenge_state with
+          | Some challenge_state -> challenge_state.Code_challenge.active
+          | None -> false)
+    in
+    if not global.dialogue_state.active && global.menu_state = None && not is_typing then
+      if was_key_just_pressed "e" then begin
+        let player = get_player_cached () in
+        let player_pos = player#position#get in
+        let player_box = player#box#get in
+        match Interaction.find_npc_at player_pos player_box, Interaction.find_sign_at player_pos player_box with
+        | Some _, _ | _, Some _ -> handle_interaction ()
+        | None, None ->
+            if global.has_secret_book then
+              Dialogue.start_dialogue global.dialogue_state (Dialogue.secret_book_for_name global.player_name)
+      end
+  );
   
   
   register "escape" (fun () ->
-    let global = get_global_cached () in
-    match global.code_challenge_state with
-    | Some challenge_state when challenge_state.Code_challenge.active ->
-        Code_challenge.close_challenge challenge_state
-    | _ ->
-        Tutorial.complete_message global.tutorial_state "menu"
+    if was_key_just_pressed "escape" then begin
+      let global = get_global_cached () in
+      match global.code_challenge_state with
+      | Some challenge_state when challenge_state.Code_challenge.active ->
+          Code_challenge.close_challenge challenge_state
+      | _ ->
+        Tutorial.complete_message global.tutorial_state "menu";
+        if Scene.current () = Scene.House then
+          Tutorial.show_message global.tutorial_state "interact";
+        (match global.on_escape_pressed with
+         | Some callback -> callback ()
+         | None -> Tutorial.complete_message global.tutorial_state "menu")
+    end
   )

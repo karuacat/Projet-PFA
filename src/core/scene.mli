@@ -3,7 +3,7 @@ type scene =
   | CharacterCreation
   | House
   | Town
-  | Academy
+  | School
 
 val current : unit -> scene
 val set_scene : scene -> unit

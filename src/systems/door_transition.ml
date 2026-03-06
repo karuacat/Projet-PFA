@@ -8,7 +8,8 @@ let init _ = ()
 let last_player_pos = ref Vector.zero
 
 let check_door_collision doors =
-  let Global.{player; tutorial_state; _} = Global.get () in
+  let global = Global.get () in
+  let Global.{player; tutorial_state; dialogue_state; _} = global in
   let p_pos : Vector.t = player#position#get in
   
   if Vector.equal !last_player_pos p_pos then
@@ -39,18 +40,35 @@ let check_door_collision doors =
                 height = float d_box.height;
               } in
               
+              let can_pass =
+                if door_config.id = "house_exit" then
+                  global.chest_challenge_completed
+                else if door_config.id = "town_school_door" then
+                  global.knight_challenge_completed
+                else
+                  true
+              in
+              
               if Rect.collides player_rect door_rect then (
-                Scene.set_scene door_config.target_scene;
-                player#position#set Vector.{
-                  x = float door_config.player_spawn_x;
-                  y = float door_config.player_spawn_y;
-                };
-                last_player_pos := player#position#get;
-                (match door_config.target_scene with
-                 | Scene.Town -> 
-                     Tutorial.show_message tutorial_state "town_explore";
-                     Tutorial.show_message tutorial_state "town_signs"
-                 | _ -> ())
+                if can_pass then (
+                  Scene.set_scene door_config.target_scene;
+                  player#position#set Vector.{
+                    x = float door_config.player_spawn_x;
+                    y = float door_config.player_spawn_y;
+                  };
+                  last_player_pos := player#position#get;
+                  (match door_config.target_scene with
+                   | Scene.Town -> 
+                       Tutorial.show_message tutorial_state "town_explore";
+                       Tutorial.show_message tutorial_state "town_signs"
+                   | _ -> ())
+                ) else if door_config.id = "house_exit" then (
+                  if not global.house_exit_attempted then (
+                    global.house_exit_attempted <- true;
+                    if not dialogue_state.active then
+                      Dialogue.start_dialogue dialogue_state Dialogue.house_exit_blocked
+                  )
+                )
               )
             )
         | _ -> ()

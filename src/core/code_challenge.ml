@@ -1,5 +1,7 @@
 type challenge_type = 
-  | StringVariable of string
+  | BoolVariable of string * bool
+  | StringVariable of string * string
+  | TypeDefinition
 
 type state = {
   mutable active : bool;
@@ -43,19 +45,53 @@ let remove_char state =
     state.cursor_pos <- state.cursor_pos - 1
   end
 
-let validate_string_variable code expected_name =
+let validate_bool_variable code expected_name expected_value =
   let trimmed = String.trim code in
-  let expected = "let admission = \"Soyez fier de devenir le futur protecteur du pays !\"" in
-  let normalize s =
-    String.trim (Str.global_replace (Str.regexp "\n+") " " s)
+  let pattern =
+    Str.regexp
+      (Printf.sprintf
+         "^let[ \t]+%s[ \t]*=[ \t]*\\(true\\|false\\)[ \t]*;;?$"
+         (Str.quote expected_name))
   in
-  String.equal (normalize trimmed) (normalize expected)
+  if Str.string_match pattern trimmed 0 then
+    let found = Str.matched_group 1 trimmed in
+    Bool.equal (String.equal found "true") expected_value
+  else
+    false
+
+let validate_string_variable code expected_name expected_value =
+  let trimmed = String.trim code in
+  let pattern =
+    Str.regexp
+      (Printf.sprintf
+         "^let[ \t]+%s[ \t]*=[ \t]*\"\\(.*\\)\"[ \t]*;;?$"
+         (Str.quote expected_name))
+  in
+  if Str.string_match pattern trimmed 0 then
+    let found = Str.matched_group 1 trimmed in
+    String.equal found expected_value
+  else
+    false
+
+let validate_type_definition code =
+  let trimmed = String.trim code in
+  let normalize s =
+    String.trim (Str.global_replace (Str.regexp "[ \n\t]+") " " s)
+  in
+  let normalized = normalize trimmed in
+  String.length normalized > 0 && 
+  (String.contains normalized '=' || String.contains normalized '{') &&
+  (String.length normalized > 10)
 
 let validate_code state =
   match state.challenge with
   | None -> false
-  | Some (StringVariable expected_name) ->
-      validate_string_variable state.code expected_name
+    | Some (BoolVariable (expected_name, expected_value)) ->
+      validate_bool_variable state.code expected_name expected_value
+    | Some (StringVariable (expected_name, expected_value)) ->
+      validate_string_variable state.code expected_name expected_value
+  | Some TypeDefinition ->
+      validate_type_definition state.code
 
 let submit_code state =
   if state.active then begin
@@ -80,4 +116,8 @@ let close_challenge state =
 let get_prompt state =
   match state.challenge with
   | None -> "Aucun défi"
-  | Some (StringVariable _) -> "Déclare une variable admission avec le code secret:"
+  | Some (BoolVariable (name, value)) ->
+      Printf.sprintf "Déclare une variable booléenne: let %s = %b;;" name value
+  | Some (StringVariable (name, value)) ->
+    Printf.sprintf "Quel est ton nom ?"
+  | Some TypeDefinition -> "Définis un type eleve avec ses propriétés:"

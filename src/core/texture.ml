@@ -1,5 +1,6 @@
 type t =
     Image of Gfx.surface
+  | Sprite of Gfx.surface * int * int * int * int
   | Color of Gfx.color
 
 let black = Color (Gfx.color 0 0 0 255)
@@ -21,6 +22,8 @@ let draw ctx dst pos (box : Rect.t) src =
   let height = box.Rect.height in
   match src with
     Image img -> Gfx.blit_scale ctx dst img x y width height
+  | Sprite (img, sx, sy, sw, sh) ->
+    Gfx.blit_full ctx dst img sx sy sw sh x y width height
   | Color c ->
     Gfx.set_color ctx c;
     Gfx.fill_rect ctx dst x y width height

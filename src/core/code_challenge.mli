@@ -1,5 +1,7 @@
 type challenge_type = 
-  | StringVariable of string
+  | BoolVariable of string * bool
+  | StringVariable of string * string
+  | TypeDefinition
 
 type state = {
   mutable active : bool;

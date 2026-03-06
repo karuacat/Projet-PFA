@@ -51,21 +51,21 @@ let draw_button ctx surface font button =
   let text_y = button.y + (button.height - text_height) / 2 in
   Gfx.blit ctx surface text_surface text_x text_y
 
-let draw_gender_button ctx surface font label x y width height selected =
-  let color = 
-    if selected then 
-      Gfx.color 100 150 255 255
-    else 
-      Gfx.color 70 70 70 255
-  in
-  let border_color = 
-    if selected then 
-      Gfx.color 50 100 200 255
-    else 
-      Gfx.color 50 50 50 255
-  in
-  
-  Gfx.set_color ctx color;
+let male_sheet : Gfx.surface Gfx.resource option ref = ref None
+let female_sheet : Gfx.surface Gfx.resource option ref = ref None
+
+let get_sheet ctx path cache =
+  match !cache with
+  | Some res -> res
+  | None ->
+      let res = Gfx.load_image ctx path in
+      cache := Some res;
+      res
+
+let draw_gender_preview ctx surface font label x y width height selected sheet_res =
+  let bg_color = if selected then Gfx.color 65 95 150 255 else Gfx.color 45 45 60 255 in
+  let border_color = if selected then Gfx.color 120 170 255 255 else Gfx.color 90 90 110 255 in
+  Gfx.set_color ctx bg_color;
   Gfx.fill_rect ctx surface x y width height;
 
   Gfx.set_color ctx border_color;
@@ -75,14 +75,21 @@ let draw_gender_button ctx surface font label x y width height selected =
     Gfx.fill_rect ctx surface (x + width - i - 1) (y + i) 1 (height - 2*i);
     Gfx.fill_rect ctx surface (x + i) (y + height - i - 1) (width - 2*i) 1
   done;
-  
-  let text_color = Gfx.color 255 255 255 255 in
-  Gfx.set_color ctx text_color;
-  let text_surface = Gfx.render_text ctx label font in
-  let text_width, text_height = Gfx.surface_size text_surface in
-  let text_x = x + (width - text_width) / 2 in
-  let text_y = y + (height - text_height) / 2 in
-  Gfx.blit ctx surface text_surface text_x text_y
+
+  (match Gfx.get_resource_opt sheet_res with
+   | Some img ->
+       let sprite_w = 72 in
+       let sprite_h = 72 in
+       let sprite_x = x + (width - sprite_w) / 2 in
+       let sprite_y = y + 12 in
+       Gfx.blit_full ctx surface img 48 0 48 48 sprite_x sprite_y sprite_w sprite_h
+   | None -> ());
+
+  let label_surface = Gfx.render_text ctx label font in
+  let label_w, label_h = Gfx.surface_size label_surface in
+  let label_x = x + (width - label_w) / 2 in
+  let label_y = y + height - label_h - 10 in
+  Gfx.blit ctx surface label_surface label_x label_y
 
 let update () =
   None
@@ -105,13 +112,17 @@ let draw () =
       Gfx.blit global.ctx surface title_surface 
         ((ww - title_width) / 2) 30;
       
-      let gender_y = 120 in
-      let gender_label_surface = Gfx.render_text global.ctx "Choisir le genre :" global.font in
-      Gfx.blit global.ctx surface gender_label_surface 100 gender_y;
+      let gender_y = 110 in
+      Gfx.set_color global.ctx (Gfx.color 255 200 100 255);
+      let gender_label_surface = Gfx.render_text global.ctx "Choisir le personnage :" global.font in
+      let gender_label_width, _ = Gfx.surface_size gender_label_surface in
+      Gfx.blit global.ctx surface gender_label_surface ((ww - gender_label_width) / 2) gender_y;
       
-      let button_width = 150 in
-      let button_height = 60 in
-      let button_y = gender_y + 50 in
+      let card_width = 200 in
+      let card_height = 140 in
+      let card_y = gender_y + 40 in
+      let male_x = 130 in
+      let female_x = ww - male_x - card_width in
       
       let male_selected = 
         match Character_creation.get_gender char_state with
@@ -123,17 +134,21 @@ let draw () =
         | Some Character_creation.Female -> true
         | _ -> false
       in
+
+      let male = get_sheet global.ctx "ressources/personnages/PlayerH.png" male_sheet in
+      let female = get_sheet global.ctx "ressources/personnages/PlayerF.png" female_sheet in
       
-      draw_gender_button global.ctx surface global.font "Masculin" 150 button_y button_width button_height male_selected;
-      draw_gender_button global.ctx surface global.font "Feminin" 450 button_y button_width button_height female_selected;
+      draw_gender_preview global.ctx surface global.font "Masculin" male_x card_y card_width card_height male_selected male;
+      draw_gender_preview global.ctx surface global.font "Feminin" female_x card_y card_width card_height female_selected female;
     
-      let name_y = button_y + 120 in
-      let name_label_surface = Gfx.render_text global.ctx "Nom du personnage (max 10):" global.font in
+      let name_y = card_y + card_height + 30 in
+      Gfx.set_color global.ctx (Gfx.color 100 150 255 255);
+      let name_label_surface = Gfx.render_text global.ctx "Nom du personnage (max 10 caracteres):" global.font in
       Gfx.blit global.ctx surface name_label_surface 100 name_y;
 
       let input_y = name_y + 50 in
-      let input_width = 300 in
-      let input_height = 50 in
+      let input_width = 420 in
+      let input_height = 60 in
       let input_x = (ww - input_width) / 2 in
       
       Gfx.set_color global.ctx (Gfx.color 40 40 60 255);

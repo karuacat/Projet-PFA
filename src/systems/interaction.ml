@@ -67,7 +67,3 @@ let find_sign_at player_pos player_box =
       | _ -> ()
     );
   !closest
-
-let reset () =
-  Entity.Table.clear npc_table;
-  Entity.Table.clear sign_table

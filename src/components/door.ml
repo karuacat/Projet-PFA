@@ -20,32 +20,55 @@ let door (config, x, y, width, height, txt) =
   e
 
 let house_doors () =
-  let house_width = Cst.window_width / 2 in
-  let house_height = Cst.window_height / 2 in
-  let offset_x = Cst.window_width / 4 in
-  let offset_y = Cst.window_height / 4 in
+  let cols = 12 in
+  let rows = 9 in
+  let cell_x c = Cst.house_offset_x + (c * Cst.house_width) / cols in
+  let cell_y r = Cst.house_offset_y + (r * Cst.house_height) / rows in
+  let cell_h r = (Cst.house_offset_y + ((r + 1) * Cst.house_height) / rows) - cell_y r in
+  let door_x = cell_x 5 in
+  let door_y = cell_y 8 in
+  let door_w = (cell_x 7) - door_x in
+  let door_h = cell_h 8 in
+  let town_spawn_x, town_spawn_y = Town_map.spawn_from_house () in
   [
     door ({
       id = "house_exit";
       current_scene = Scene.House;
       target_scene = Scene.Town;
-      player_spawn_x = 460;
-      player_spawn_y = 290;
-    }, offset_x + house_width - 10, offset_y + house_height / 2 - 30, 10, 60, Texture.brown)
+      player_spawn_x = town_spawn_x;
+      player_spawn_y = town_spawn_y;
+    }, door_x, door_y, door_w, door_h, Texture.transparent)
   ]
 
 let town_doors () =
-  let small_size = 80 in
-  let offset_x = (Cst.window_width / 2) - (small_size / 2) in
-  let offset_y = (Cst.window_height / 2) - (small_size / 2) in
-  let door_x = offset_x + small_size in
-  let door_y = offset_y + (small_size / 2) - 30 in
+  let house_door_x, house_door_y, house_door_w, house_door_h = Town_map.house_door_rect () in
+  let academy_door_x, academy_door_y, academy_door_w, academy_door_h = Town_map.academy_door_rect () in
+  let school_spawn_x, school_spawn_y = School_map.spawn_from_town () in
   [
     door ({
       id = "town_house_door";
       current_scene = Scene.Town;
       target_scene = Scene.House;
-      player_spawn_x = 540;
-      player_spawn_y = 280;
-    }, door_x, door_y, 10, 60, Texture.brown)
+      player_spawn_x = 365;
+      player_spawn_y = 380;
+    }, house_door_x, house_door_y, house_door_w, house_door_h, Texture.transparent);
+    door ({
+      id = "town_school_door";
+      current_scene = Scene.Town;
+      target_scene = Scene.School;
+      player_spawn_x = school_spawn_x;
+      player_spawn_y = school_spawn_y;
+    }, academy_door_x, academy_door_y, academy_door_w, academy_door_h, Texture.transparent)
+  ]
+
+let school_doors () =
+  let town_door_x, town_door_y, town_door_w, town_door_h = School_map.town_door_rect () in
+  [
+    door ({
+      id = "school_town_door";
+      current_scene = Scene.School;
+      target_scene = Scene.Town;
+      player_spawn_x = 400;
+      player_spawn_y = 100;
+    }, town_door_x, town_door_y, town_door_w, town_door_h, Texture.transparent)
   ]

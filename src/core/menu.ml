@@ -20,6 +20,7 @@ type menu = {
   mutable buttons : button list;
   mutable mouse_x : int;
   mutable mouse_y : int;
+  mutable info_message : string option;
 }
 
 let create () = {
@@ -27,6 +28,7 @@ let create () = {
   buttons = [];
   mouse_x = 0;
   mouse_y = 0;
+  info_message = None;
 }
 
 let add_button menu button =
@@ -34,6 +36,12 @@ let add_button menu button =
 
 let clear_buttons menu =
   menu.buttons <- []
+
+let set_info_message menu message =
+  menu.info_message <- Some message
+
+let clear_info_message menu =
+  menu.info_message <- None
 
 let create_button id label x y width height action = {
   id;
@@ -77,6 +85,7 @@ let set_button_enabled menu button_id enabled =
 
 let setup_main_menu menu callback_new_game callback_continue callback_options callback_quit =
   clear_buttons menu;
+  clear_info_message menu;
   menu.state <- MainMenu;
   
   let button_width = 250 in
@@ -94,6 +103,7 @@ let setup_main_menu menu callback_new_game callback_continue callback_options ca
 
 let setup_options_menu menu callback_back =
   clear_buttons menu;
+  clear_info_message menu;
   menu.state <- Options;
   
   let button_width = 200 in
@@ -103,16 +113,18 @@ let setup_options_menu menu callback_back =
   
   add_button menu (create_button "back" "Retour" start_x start_y button_width button_height callback_back)
 
-let setup_paused_menu menu callback_resume callback_menu callback_quit =
+let setup_paused_menu menu callback_resume callback_save callback_options callback_menu callback_quit =
   clear_buttons menu;
   menu.state <- Paused;
   
   let button_width = 250 in
   let button_height = 60 in
   let start_x = (Cst.window_width - button_width) / 2 in
-  let start_y = 150 in
-  let spacing = 90 in
+  let start_y = 95 in
+  let spacing = 65 in
   
-  add_button menu (create_button "resume" "Reprendre" start_x start_y button_width button_height callback_resume);
-  add_button menu (create_button "menu" "Menu principal" start_x (start_y + spacing) button_width button_height callback_menu);
-  add_button menu (create_button "quit" "Quitter" start_x (start_y + spacing * 2) button_width button_height callback_quit)
+  add_button menu (create_button "resume" "Continuer" start_x start_y button_width button_height callback_resume);
+  add_button menu (create_button "save" "Sauvegarder" start_x (start_y + spacing) button_width button_height callback_save);
+  add_button menu (create_button "options" "Options" start_x (start_y + spacing * 2) button_width button_height callback_options);
+  add_button menu (create_button "menu" "Menu principal" start_x (start_y + spacing * 3) button_width button_height callback_menu);
+  add_button menu (create_button "quit" "Quitter" start_x (start_y + spacing * 4) button_width button_height callback_quit)

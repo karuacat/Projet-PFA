@@ -4,6 +4,26 @@ type t = Entity.t
 
 let init _ = ()
 
+let wrap_text ctx font max_width text =
+  let words = String.split_on_char ' ' text in
+  let rec loop acc current_line remaining_words =
+    match remaining_words with
+    | [] ->
+        if String.length current_line = 0 then List.rev acc
+        else List.rev (current_line :: acc)
+    | word :: tail ->
+        let candidate =
+          if String.length current_line = 0 then word
+          else current_line ^ " " ^ word
+        in
+        let width, _ = Gfx.measure_text candidate font in
+        if width <= max_width || String.length current_line = 0 then
+          loop acc candidate tail
+        else
+          loop (current_line :: acc) word tail
+  in
+  loop [] "" words
+
 let draw_code_interface state =
   let global = Global.get () in
   let ctx = global.ctx in
@@ -31,11 +51,15 @@ let draw_code_interface state =
   
   Gfx.set_color ctx (Gfx.color 200 200 255 255);
   let prompt = Code_challenge.get_prompt state in
-  let prompt_surf = Gfx.render_text ctx prompt font in
-  Gfx.blit ctx surface prompt_surf (box_x + 10) (box_y + 40);
+  let prompt_lines = wrap_text ctx font (box_width - 30) prompt in
+  let _ = List.fold_left (fun offset line ->
+    let prompt_surf = Gfx.render_text ctx line font in
+    Gfx.blit ctx surface prompt_surf (box_x + 10) (box_y + 40 + offset);
+    offset + 20
+  ) 0 prompt_lines in
   
   let input_x = box_x + 20 in
-  let input_y = box_y + 80 in
+  let input_y = box_y + 105 in
   let input_width = box_width - 40 in
   let input_height = 100 in
   

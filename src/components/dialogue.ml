@@ -45,58 +45,81 @@ let close_dialogue state =
   state.active <- false;
   state.current_dialogue <- None
 
+let create_choice_dialogue question choices = {
+  question;
+  choices;
+  selected_choice = 0;
+}
+
+let get_selected_choice choice_dialogue =
+  if choice_dialogue.selected_choice < List.length choice_dialogue.choices then
+    Some (List.nth choice_dialogue.choices choice_dialogue.selected_choice)
+  else
+    None
+
+let next_choice choice_dialogue =
+  if choice_dialogue.selected_choice < List.length choice_dialogue.choices - 1 then
+    choice_dialogue.selected_choice <- choice_dialogue.selected_choice + 1
+
+let prev_choice choice_dialogue =
+  if choice_dialogue.selected_choice > 0 then
+    choice_dialogue.selected_choice <- choice_dialogue.selected_choice - 1
+
 let intro_wake_up = create_dialogue [
-  { speaker = "Moi"; text = "Aujourd'hui c'est mon premier jour\nà l'école de magie !" };
-  { speaker = "Moi"; text = "Je vais enfin pouvoir réaliser\nmon rêve de devenir chevalier d'OCamlon !" };
+  { speaker = "Moi"; text = "…Encore ce rêve étrange…" };
+  { speaker = "Moi"; text = "Des symboles qui brillent…" };
+  { speaker = "Moi"; text = "Aujourd'hui, c'est mon premier jour\nà l'école de magie." };
+  { speaker = "Moi"; text = "Père disait toujours que les mots\nfaçonnent le monde…" };
+]
+
+let house_exit_blocked = create_dialogue [
+  { speaker = "Moi"; text = "Je ne peux pas partir sans mes clefs\nni mes affaires !" };
+  { speaker = "Moi"; text = "Normalement tout devrait se trouver\ndans mon coffre…" };
+]
+
+let chest_intro = create_dialogue [
+  { speaker = "Moi"; text = "Bien sûr il est fermé à clé !" };
+  { speaker = "Moi"; text = "Il faut que je les fasse apparaître." };
+  { speaker = "Coffre de l'Apprenti"; text = "[Appuie sur C pour tenter l'épreuve]\n[ENTREE pour valider]" };
+]
+
+let chest_success = create_dialogue [
+  { speaker = "Coffre de l'Apprenti"; text = "Une lumière stable émane du coffre." };
+  { speaker = "Moi"; text = "Maintenant que j'ai mes affaires,\nil faut que je me dépêche d'aller\nà l'académie." };
+  { speaker = "Moi"; text = "Je ne voudrais pas être en retard\ndès le premier jour !" };
+]
+
+let chest_failure = create_dialogue [
+  { speaker = "Coffre de l'Apprenti"; text = "Le sceau résiste." };
+  { speaker = "Coffre de l'Apprenti"; text = "Essaie avec : let cles = true;;" };
+]
+
+let chest_post_victory = create_dialogue [
+  { speaker = "Coffre de l'Apprenti"; text = "Le coffre est déjà ouvert." };
 ]
 
 let npc_villager_1 = create_dialogue [
-  { speaker = "Vieille érudite"; text = "Ah, un nouvel apprenti !" };
-  { speaker = "Vieille érudite"; text = "Les jeunes apprennent à lancer des sorts..." };
-  { speaker = "Vieille érudite"; text = "Mais peu comprennent leur véritable sens." };
-  { speaker = "Vieille érudite"; text = "Bon courage, jeune mage." };
+  { speaker = "Vieille érudite"; text = "Les jeunes apprennent à lancer des sorts…" };
+  { speaker = "Vieille érudite"; text = "Mais peu comprennent leur sens." };
 ]
 
 let npc_villager_2 = create_dialogue [
-  { speaker = "Marchand"; text = "Bienvenue!" };
   { speaker = "Marchand"; text = "Tu vas à l'Académie ?" };
-  { speaker = "Marchand"; text = "Alors écoute bien : ici, mal nommer une \nchose, c'est déjà l'affaiblir." };
-  { speaker = "Marchand"; text = "Les mots ont du poids." };
+  { speaker = "Marchand"; text = "Alors écoute bien :" };
+  { speaker = "Marchand"; text = "ici, mal nommer une chose,\nc'est déjà l'affaiblir." };
 ]
 
-let npc_guard = create_dialogue [
-  { speaker = "Garde des Portes"; text = "Bienvenue dans nos rues !" };
-  { speaker = "Garde des Portes"; text = "L'Académie d'OCamlon est au nord." };
-  { speaker = "Garde des Portes"; text = "Sois prudent et respectueux." };
-]
-
-let town_academy_sign = create_dialogue [
-  { speaker = "Panneau"; text = "Académie d'OCamlon\n→ Nord\n\nStabilité, Savoir, Structure" };
-]
-
-let town_market_sign = create_dialogue [
-  { speaker = "Panneau"; text = "Place du Marché\n→ Est\n\nCommerces et services" };
-]
 let knight_guardian_intro = create_dialogue [
   { speaker = "Chevalier Gardien"; text = "Halte !" };
   { speaker = "Chevalier Gardien"; text = "Aucun acier ne protège mieux\nqu'un symbole bien formé." };
   { speaker = "Chevalier Gardien"; text = "Montre-moi que tu sais nommer\nsans ambiguïté." };
-  { speaker = "Chevalier Gardien"; text = "Déclare une variable de type string\navec le code d'entrée de l'académie." };
-  { speaker = "Chevalier Gardien"; text = "[Appuie sur C pour tenter l'épreuve]\n[Retour à la ligne avec ENTREE]\n[Ctrl+ENTREE pour valider]" };
-]
-
-let knight_guardian_waiting = create_dialogue [
-  { speaker = "Chevalier Gardien"; text = "Je t'écoute, apprenti." };
-  { speaker = "Chevalier Gardien"; text = "Déclare une variable string\navec ton nom." };
-]
-
-let knight_guardian_success = create_dialogue [
-  { speaker = "Chevalier Gardien"; text = "Hm... Stable. Cohérent." };
-  { speaker = "Chevalier Gardien"; text = "Tu peux entrer." };
+  { speaker = "Chevalier Gardien"; text = "Déclare ton nom avec une variable string." };
+  { speaker = "Chevalier Gardien"; text = "[Appuie sur C pour tenter l'épreuve]\n[Ctrl+ENTREE pour retourner à la ligne]\n[ENTREE pour valider]" };
 ]
 
 let knight_guardian_failure = create_dialogue [
-  { speaker = "Chevalier Gardien"; text = "Ces mots tremblent ! \n Reprends-toi." };
+  { speaker = "Chevalier Gardien"; text = "Ces mots tremblent !" };
+  { speaker = "Chevalier Gardien"; text = "N'as-tu donc pas un livre de sorts ?" };
 ]
 let knight_guardian_admission_success = create_dialogue [
   { speaker = "Chevalier Gardien"; text = "Les mots ont du pouvoir."; };
@@ -112,11 +135,15 @@ let knight_guardian_post_victory = create_dialogue [
   { speaker = "Chevalier Gardien"; text = "Et souviens-toi : \nc'est par l'ordre des symboles\nque se manifeste la vraie puissance." };
 ]
 
-let secret_book = create_dialogue [
-  { speaker = "Livre Ancien"; text = "Les Fondations de l'Art des Symboles"; };
-  { speaker = "Livre Ancien"; text = "Chapitre 1: Les Variables String"; };
-  { speaker = "Livre Ancien"; text = "Un String est une chaîne de caractères\nentourée de guillemets."; };
-  { speaker = "Livre Ancien"; text = "Pour déclarer une variable string,\nutilise: let admission = \"...\""; };
-  { speaker = "Livre Ancien"; text = "Le code de l'admission est:"; };
-  { speaker = "Livre Ancien"; text = "let admission = \"Soyez fier de devenir le \nfutur protecteur du pays !\""; };
-]
+let secret_book_for_name player_name =
+  let shown_name =
+    let trimmed = String.trim player_name in
+    if String.length trimmed = 0 then "Apprenti" else trimmed
+  in
+  create_dialogue [
+    { speaker = "Livre Ancien"; text = "Les Fondations de l'Art des Symboles"; };
+    { speaker = "Livre Ancien"; text = "Une variable stocke une valeur avec un nom."; };
+    { speaker = "Livre Ancien"; text = "Une fonction transforme une entrée en sortie."; };
+    { speaker = "Livre Ancien"; text = "Un string est une chaîne entre guillemets."; };
+    { speaker = "Livre Ancien"; text = "Exemple: let nom = \"" ^ shown_name ^ "\";;"; };
+  ]

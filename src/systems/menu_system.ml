@@ -68,6 +68,14 @@ let draw () =
       List.iter (fun button ->
         draw_button global.ctx surface global.font button
       ) menu.Menu.buttons;
+
+      (match menu.Menu.info_message with
+       | Some msg ->
+           let msg_surface = Gfx.render_text global.ctx msg global.font in
+           let msg_w, _ = Gfx.surface_size msg_surface in
+           Gfx.set_color global.ctx (Gfx.color 140 220 140 255);
+           Gfx.blit global.ctx surface msg_surface ((ww - msg_w) / 2) (wh - 70)
+       | None -> ());
       
       None
   | None -> None
