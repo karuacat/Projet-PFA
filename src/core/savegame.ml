@@ -8,6 +8,8 @@ type data = {
   chest_challenge_completed : bool;
   knight_challenge_completed : bool;
   skin : string;
+  school_students_event_completed : bool;
+  classroom_intro_completed : bool;
 }
 
 let save_path = "savegame.dat"
@@ -36,6 +38,8 @@ let save (global : Global.t) =
     chest_challenge_completed = global.chest_challenge_completed;
     knight_challenge_completed = global.knight_challenge_completed;
     skin = Player.get_skin_tag ();
+    school_students_event_completed = global.school_students_event_completed;
+    classroom_intro_completed = global.classroom_intro_completed;
   }
   in
   try
@@ -66,5 +70,7 @@ let apply_to_global (global : Global.t) payload =
   global.has_secret_book <- payload.has_secret_book;
   global.chest_challenge_completed <- payload.chest_challenge_completed;
   global.knight_challenge_completed <- payload.knight_challenge_completed;
+  global.school_students_event_completed <- payload.school_students_event_completed;
+  global.classroom_intro_completed <- payload.classroom_intro_completed;
   Player.set_skin_tag payload.skin;
   Player.refresh_player_sprite global.player

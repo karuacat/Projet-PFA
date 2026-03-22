@@ -4,6 +4,7 @@ type scene =
   | House
   | Town
   | School
+  | Classroom
 
 val current : unit -> scene
 val set_scene : scene -> unit

@@ -5,6 +5,8 @@ let house_width = 400
 let house_height = 300
 let house_offset_x = (window_width - house_width) / 2
 let house_offset_y = (window_height - house_height) / 2
+let house_cols = 12
+let house_rows = 9
 let house_scale = float_of_int house_width /. 288.0
 
 let town_cols = 20
@@ -16,6 +18,11 @@ let school_cols = 16
 let school_rows = 12
 let school_cell_w = window_width / school_cols
 let school_cell_h = window_height / school_rows
+
+let classroom_cols = 20
+let classroom_rows = 15
+let classroom_cell_w = window_width / classroom_cols
+let classroom_cell_h = window_height / classroom_rows
 
 let player_width = 24
 let player_height = 20

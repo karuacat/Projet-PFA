@@ -18,6 +18,8 @@ type t = {
     mutable has_secret_book : bool;
     mutable chest_challenge_completed : bool;
     mutable knight_challenge_completed : bool;
+    mutable school_students_event_completed : bool;
+    mutable classroom_intro_completed : bool;
 }
 
 val get : unit -> t

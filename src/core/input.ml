@@ -94,27 +94,16 @@ let handle_interaction () =
             if data.title = "Coffre de l'Apprenti" && not global.house_exit_attempted then
               None
             else if data.title = "Livre Ancien" then
-              let sign_pos = sign#position#get in
-              let sign_box = sign#box#get in
-              let player_center = Vector.{
-                x = player_pos.x +. (float_of_int player_box.width /. 2.0);
-                y = player_pos.y +. (float_of_int player_box.height /. 2.0);
-              } in
-              let sign_center = Vector.{
-                x = sign_pos.x +. (float_of_int sign_box.width /. 2.0);
-                y = sign_pos.y +. (float_of_int sign_box.height /. 2.0);
-              } in
-              let near_book = distance_sq player_center sign_center <= (18.0 *. 18.0) in
-              if not near_book then
-                None
-              else if not global.has_secret_book then (
+              if not global.has_secret_book then (
                 global.has_secret_book <- true;
                 Some (Dialogue.create_dialogue [
                   { Component_defs.speaker = "Moi"; text = "Je récupère le livre ancien." };
                   { Component_defs.speaker = "Moi"; text = "Je peux l'utiliser avec E." };
                 ])
               ) else
-                None
+                Some (Dialogue.create_dialogue [
+                  { Component_defs.speaker = "Moi"; text = "J'ai déjà récupéré ce livre." };
+                ])
             else if data.title = "Coffre de l'Apprenti" then
               if global.chest_challenge_completed then Some Dialogue.chest_post_victory else Some Dialogue.chest_intro
             else
@@ -146,7 +135,9 @@ let is_return_key s =
   String.length lower > 0 && (
     String.starts_with ~prefix:"return" lower ||
     String.starts_with ~prefix:"enter" lower ||
-    String.starts_with ~prefix:"kp" lower ||
+    String.equal lower "kp enter" ||
+    String.equal lower "kp_enter" ||
+    String.equal lower "keypad enter" ||
     String.starts_with ~prefix:"shift+return" lower ||
     String.starts_with ~prefix:"shift+enter" lower ||
     String.equal lower "?" ||
@@ -164,21 +155,57 @@ let is_space_key s =
 let is_tab_key s =
   String.equal (String.lowercase_ascii s) "tab"
 
-let try_parse_special_char s =
-  match s with
-  | "1" -> Some '&'
-  | "2" -> Some 'e' (* normally é but avoid encoding issues *)
-  | "3" -> Some '"'
-  | "4" -> Some '\''
-  | "5" -> Some '('
-  | "6" -> Some '-'
-  | "7" -> Some 'e'  (* normally è but avoid encoding issues *)
-  | "8" -> Some '_'
-  | "9" -> Some 'c'  (* normally ç but avoid encoding issues *)
-  | "0" -> Some 'a'  (* normally à but avoid encoding issues *)
-  (* Regular single characters *)
-  | s when String.length s = 1 && Char.code s.[0] >= 32 && Char.code s.[0] <= 126 -> Some s.[0]
+let try_parse_special_char ~shift s =
+  let lower = String.lowercase_ascii s in
+  match lower with
+  (* Top-row AZERTY behavior: Shift gives digits, otherwise symbols. *)
+  | "1" -> Some (if shift then '1' else '&')
+  | "2" -> Some (if shift then '2' else 'e')
+  | "3" -> Some (if shift then '3' else '"')
+  | "4" -> Some (if shift then '4' else '\'')
+  | "5" -> Some (if shift then '5' else '(')
+  | "6" -> Some (if shift then '6' else '-')
+  | "7" -> Some (if shift then '7' else 'e')
+  | "8" -> Some (if shift then '8' else '_')
+  | "9" -> Some (if shift then '9' else 'c')
+  | "0" -> Some (if shift then '0' else 'a')
+  (* + can come from various layouts/key names. *)
+  | "=" -> Some (if shift then '+' else '=')
+  | "plus" | "kp plus" | "kp_plus" -> Some '+'
+  (* Numpad digits are always digits. *)
+  | "kp 1" | "kp1" -> Some '1'
+  | "kp 2" | "kp2" -> Some '2'
+  | "kp 3" | "kp3" -> Some '3'
+  | "kp 4" | "kp4" -> Some '4'
+  | "kp 5" | "kp5" -> Some '5'
+  | "kp 6" | "kp6" -> Some '6'
+  | "kp 7" | "kp7" -> Some '7'
+  | "kp 8" | "kp8" -> Some '8'
+  | "kp 9" | "kp9" -> Some '9'
+  | "kp 0" | "kp0" -> Some '0'
+  (* Regular single ASCII characters *)
+  | _ when String.length s = 1 && Char.code s.[0] >= 32 && Char.code s.[0] <= 126 ->
+      Some (if shift then Char.uppercase_ascii s.[0] else s.[0])
   | _ -> None
+
+let is_professor_locked_challenge (global : Global.t) challenge_state =
+  challenge_state.Code_challenge.active
+  && Scene.current () = Scene.Classroom
+  && not global.classroom_intro_completed
+  &&
+  match challenge_state.Code_challenge.challenge with
+  | Some Code_challenge.PowerCalculation -> true
+  | _ -> false
+
+let is_school_students_cinematic_active (global : Global.t) =
+  Scene.current () = Scene.School && not global.school_students_event_completed
+
+let is_classroom_entry_cinematic_active (global : Global.t) =
+  Scene.current () = Scene.Classroom && not global.classroom_intro_completed
+
+let can_move_player (global : Global.t) =
+  not (is_school_students_cinematic_active global)
+  && not (is_classroom_entry_cinematic_active global)
 
 let is_shift_pressed () =
   has_key "shift" || has_key "lshift" || has_key "rshift" ||
@@ -197,15 +224,16 @@ let rec handle_input () =
              if is_backspace_key s then
                Character_creation.remove_character char_state
              else begin
+               let shift = is_shift_pressed () in
                let char_to_add =
-                 if (is_shift_pressed () || is_ctrl_down ()) && String.length s = 1 then
+                 if (shift || is_ctrl_down ()) && String.length s = 1 then
                    let c = s.[0] in
                    if c >= 'a' && c <= 'z' then
                      Some (Char.uppercase_ascii c)
                    else
-                     try_parse_special_char s
+                     try_parse_special_char ~shift s
                  else
-                   try_parse_special_char s
+                   try_parse_special_char ~shift s
                in
                match char_to_add with
                | Some c -> Character_creation.add_character char_state c
@@ -220,6 +248,7 @@ let rec handle_input () =
          | _ -> ());
         (match global.code_challenge_state with
          | Some challenge_state when challenge_state.Code_challenge.active ->
+              let challenge_locked = is_professor_locked_challenge global challenge_state in
              let is_modifier = String.equal s "shift" || String.equal s "lshift" || String.equal s "rshift" ||
                               String.equal s "left shift" || String.equal s "right shift" ||
                               String.equal s "ctrl" || String.equal s "lctrl" || String.equal s "rctrl" ||
@@ -231,7 +260,7 @@ let rec handle_input () =
                if global.dialogue_state.active then (
                  if is_space_key s || (is_return_key s && not (is_shift_pressed ())) then
                    handle_interaction ()
-                 else if is_tab_key s then
+                  else if is_tab_key s && not challenge_locked then
                    Code_challenge.close_challenge challenge_state
                ) else if is_backspace_key s then
                  Code_challenge.remove_char challenge_state
@@ -241,20 +270,21 @@ let rec handle_input () =
                    Code_challenge.add_char challenge_state '\n'
                  else
                    Code_challenge.submit_code challenge_state
-               ) else if is_tab_key s then
+                ) else if is_tab_key s && not challenge_locked then
                  Code_challenge.close_challenge challenge_state
                else if is_space_key s then
                  Code_challenge.add_char challenge_state ' '
                else begin
+                  let shift = is_shift_pressed () in
                  let char_to_add =
-                   if is_shift_pressed () && String.length s = 1 then
+                    if shift && String.length s = 1 then
                      let c = s.[0] in
                      if c >= 'a' && c <= 'z' then
                        Some (Char.uppercase_ascii c)
                      else
-                       try_parse_special_char s
+                        try_parse_special_char ~shift s
                    else
-                     try_parse_special_char s
+                      try_parse_special_char ~shift s
                  in
                  match char_to_add with
                  | Some c -> Code_challenge.add_char challenge_state c
@@ -285,6 +315,43 @@ let rec handle_input () =
                     in
                     Code_challenge.start_challenge challenge_state 
                       (Code_challenge.StringVariable ("nom", expected_name)) on_success on_failure
+                | _ -> ()
+              end else if data.Component_defs.name = "Professeur Lambda" then begin
+                match global.code_challenge_state with
+                | Some challenge_state when not challenge_state.Code_challenge.active ->
+                    let on_success () =
+                      Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
+                        { Component_defs.speaker = "Narration"; text = "Une lumiere apparait dans la salle." };
+                        { Component_defs.speaker = "Narration"; text = "Une sphere d'energie se forme." };
+                        { Component_defs.speaker = "Professeur Lambda"; text = "Bien." };
+                        { Component_defs.speaker = "Professeur Lambda"; text = "Les nombres sont l'energie brute de la magie." };
+                        { Component_defs.speaker = "Professeur Lambda"; text = "Continue, et n'oublie jamais la rigueur." };
+                      ])
+                    in
+                    let on_failure () =
+                      let dlg =
+                        match Code_challenge.get_last_failure_reason challenge_state with
+                        | Some Code_challenge.TypeError ->
+                            Dialogue.create_dialogue [
+                              { Component_defs.speaker = "Professeur Lambda"; text = "Tu melanges des essences incompatibles." };
+                              { Component_defs.speaker = "Professeur Lambda"; text = "Les types sont les lois fondamentales de ce monde." };
+                              { Component_defs.speaker = "Narration"; text = "Une etincelle magique frappe le joueur." };
+                            ]
+                        | Some Code_challenge.SyntaxError ->
+                            Dialogue.create_dialogue [
+                              { Component_defs.speaker = "Narration"; text = "Ton sort s'effondre avant meme d'exister." };
+                              { Component_defs.speaker = "Professeur Lambda"; text = "La magie exige de la structure." };
+                              { Component_defs.speaker = "Narration"; text = "Le decor tremble legerement." };
+                            ]
+                        | _ ->
+                            Dialogue.create_dialogue [
+                              { Component_defs.speaker = "Professeur Lambda"; text = "Recommence. Structure ton incantation." };
+                            ]
+                      in
+                      Dialogue.start_dialogue global.dialogue_state dlg
+                    in
+                    Code_challenge.start_challenge challenge_state
+                      Code_challenge.PowerCalculation on_success on_failure
                 | _ -> ()
               end
           | None ->
@@ -387,7 +454,7 @@ let () =
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
     in
-    if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
+    if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_up;
       Tutorial.complete_message global.tutorial_state "move"
       ;
@@ -406,7 +473,7 @@ let () =
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
     in
-    if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
+    if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_down;
       Tutorial.complete_message global.tutorial_state "move"
       ;
@@ -425,7 +492,7 @@ let () =
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
     in
-    if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
+    if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_right;
       Tutorial.complete_message global.tutorial_state "move"
       ;
@@ -444,7 +511,7 @@ let () =
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
     in
-    if not global.dialogue_state.active && global.menu_state = None && not is_typing then begin
+    if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_left;
       Tutorial.complete_message global.tutorial_state "move"
       ;
@@ -493,7 +560,8 @@ let () =
       let global = get_global_cached () in
       match global.code_challenge_state with
       | Some challenge_state when challenge_state.Code_challenge.active ->
-          Code_challenge.close_challenge challenge_state
+          if not (is_professor_locked_challenge global challenge_state) then
+            Code_challenge.close_challenge challenge_state
       | _ ->
         Tutorial.complete_message global.tutorial_state "menu";
         if Scene.current () = Scene.House then

@@ -46,7 +46,12 @@ let draw_code_interface state =
   Gfx.fill_rect ctx surface (box_x + box_width - border_thickness) box_y border_thickness box_height;
   
   Gfx.set_color ctx (Gfx.color 255 200 100 255);
-  let title_surf = Gfx.render_text ctx "Epreuve de Magie" font in
+  let title =
+    match state.Code_challenge.challenge with
+    | Some Code_challenge.PowerCalculation -> "Defi magique : Calcul elementaire"
+    | _ -> "Epreuve de Magie"
+  in
+  let title_surf = Gfx.render_text ctx title font in
   Gfx.blit ctx surface title_surf (box_x + 10) (box_y + 10);
   
   Gfx.set_color ctx (Gfx.color 200 200 255 255);
@@ -89,7 +94,7 @@ let draw_code_interface state =
   end;
   
   Gfx.set_color ctx (Gfx.color 150 150 150 255);
-  let instr_surf = Gfx.render_text ctx "ENTREE: Valider | ECHAP: Annuler" font in
+  let instr_surf = Gfx.render_text ctx "ENTREE: Valider | ECHAP: Annuler | Ctrl+ENTREE: Nouvelle ligne" font in
   Gfx.blit ctx surface instr_surf (box_x + 10) (box_y + 250)
 
 let update (_ : float) (_ : t Seq.t) =

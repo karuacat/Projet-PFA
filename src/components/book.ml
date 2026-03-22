@@ -25,6 +25,7 @@ let create_book x y scene =
   book#resolve#set (fun _ _ -> ());
   
   Draw_system.(register (book :> t));
+  Collision_system.register (book :> Collision.t);
   Interaction.register_sign book;
   
   book

@@ -1,13 +1,20 @@
 type challenge_type = 
   | BoolVariable of string * bool
   | StringVariable of string * string
+  | PowerCalculation
   | TypeDefinition
+
+type failure_reason =
+  | SyntaxError
+  | TypeError
+  | GenericError
 
 type state = {
   mutable active : bool;
   mutable challenge : challenge_type option;
   mutable code : string;
   mutable cursor_pos : int;
+  mutable last_failure_reason : failure_reason option;
   mutable on_success : (unit -> unit) option;
   mutable on_failure : (unit -> unit) option;
 }
@@ -27,3 +34,5 @@ val submit_code : state -> unit
 val close_challenge : state -> unit
 
 val get_prompt : state -> string
+
+val get_last_failure_reason : state -> failure_reason option

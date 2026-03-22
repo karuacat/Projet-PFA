@@ -18,29 +18,23 @@ let wall (x, y, width, height, horiz, texture, scene) =
   e
 
 let house_walls () =
-  let cols = 12 in
-  let rows = 9 in
-  let layout = [|
-    "NNNNNNNNNNNN";
-    "NNNNNNNNNNNN";
-    "NNNNNNNNNNNN";
-    "NNNOOOOOONNN";
-    "NNOOOONOOOON";
-    "NOOOONNNOOON";
-    "NOOOONNNOOON";
-    "NNOOOOOOOONN";
-    "NNNNNOONNNNN";
-  |] in
-  let cell_x c = Cst.house_offset_x + (c * Cst.house_width) / cols in
-  let cell_y r = Cst.house_offset_y + (r * Cst.house_height) / rows in
-  let cell_w c = (Cst.house_offset_x + ((c + 1) * Cst.house_width) / cols) - cell_x c in
-  let cell_h r = (Cst.house_offset_y + ((r + 1) * Cst.house_height) / rows) - cell_y r in
+  let cols = Cst.house_cols in
+  let rows = Cst.house_rows in
   let blockers = ref [] in
 
   for r = 0 to rows - 1 do
     for c = 0 to cols - 1 do
-      if layout.(r).[c] = 'N' then
-        blockers := wall (cell_x c, cell_y r, cell_w c, cell_h r, true, Texture.transparent, Scene.House) :: !blockers
+      if House_map.is_blocked c r then
+        blockers :=
+          wall
+            ( House_map.cell_x c,
+              House_map.cell_y r,
+              House_map.cell_w c,
+              House_map.cell_h r,
+              true,
+              Texture.transparent,
+              Scene.House )
+          :: !blockers
     done
   done;
 
@@ -83,4 +77,21 @@ let school_walls () =
           :: !blockers
     done
   done;
+  List.rev !blockers
+
+let classroom_walls () =
+  let blockers = ref [] in
+  List.iter
+    (fun (x, y, w, h) ->
+      blockers :=
+        wall
+          ( x,
+            y,
+            w,
+            h,
+            true,
+            Texture.transparent,
+            Scene.Classroom )
+        :: !blockers)
+    (Classroom_map.collision_rects ());
   List.rev !blockers

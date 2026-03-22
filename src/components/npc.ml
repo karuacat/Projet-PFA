@@ -21,6 +21,7 @@ let create_npc ?texture name x y (npc_data : npc_data) scene =
     | "Élève A" -> (46, 56)
     | "Élève B" -> (46, 56)
     | "Élève" -> (46, 56)
+    | "Professeur Lambda" -> (44, 58)
     | _ -> (32, 32)
   in
   npc#box#set Rect.{ width; height };

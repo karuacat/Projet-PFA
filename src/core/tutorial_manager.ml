@@ -20,4 +20,5 @@ let check_scene_tutorials () =
           town_interact_tutorial_shown := true
         end
     | Scene.School -> ()
+    | Scene.Classroom -> ()
   end

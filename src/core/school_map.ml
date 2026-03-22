@@ -3,8 +3,8 @@ let layout = [|
   "NNNNNNNNNNNNNNNN";
   "NNNNNNNNNCCNNNNN";
   "NOOOOOOONOOOOOON";
-  "NONNNOOOOOOOOONN";
-  "NONNNOOOOOOOOONN";
+  "NONNNOEOOOOOOONN";
+  "NONNNEOEOOOOOONN";
   "NONNNOOOOOOOOONN";
   "NONNNOOOOOOOOONN";
   "NOOOOOOOOOOOOOON";
@@ -58,4 +58,10 @@ let spawn_from_town () =
   let tx, ty, tw, _ = town_door_rect () in
   let center_x = tx + (tw / 2) in
   let spawn_y = ty - Cst.player_height - 6 in
+  (center_x - (Cst.player_width / 2), spawn_y)
+
+let spawn_from_classroom () =
+  let cx, cy, cw, ch = class_door_rect () in
+  let center_x = cx + (cw / 2) in
+  let spawn_y = cy + ch + 6 in
   (center_x - (Cst.player_width / 2), spawn_y)
