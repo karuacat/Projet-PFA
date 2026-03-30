@@ -69,7 +69,7 @@ let run () =
   Tutorial.register_message tutorial_state "town_signs" "Lis les panneaux pour\ntrouver l'Académie";
   
   let menu = Menu.create () in
-  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None; on_escape_pressed = None; player_name = "Apprenti"; code_challenge_state = Some code_challenge_state; house_exit_attempted = false; has_secret_book = false; chest_challenge_completed = false; knight_challenge_completed = false; school_students_event_completed = false; classroom_intro_completed = false } in
+  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None; on_escape_pressed = None; player_name = "Apprenti"; code_challenge_state = Some code_challenge_state; house_exit_attempted = false; has_secret_book = false; chest_challenge_completed = false; knight_challenge_completed = false; school_students_event_completed = false; classroom_intro_completed = false; lambda_duel_started = false; lambda_duel_stage = 0; lambda_golem_hp = 20; lambda_golem_hp_visible = false; lambda_duel_completed = false } in
   Global.set global;
   
   let rec start_new_game () =
@@ -81,6 +81,11 @@ let run () =
     global.knight_challenge_completed <- false;
     global.school_students_event_completed <- false;
     global.classroom_intro_completed <- false;
+    global.lambda_duel_started <- false;
+    global.lambda_duel_stage <- 0;
+    global.lambda_golem_hp <- 20;
+    global.lambda_golem_hp_visible <- false;
+    global.lambda_duel_completed <- false;
     Story_events_system.reset_for_new_game ();
     global.player_name <- "Apprenti";
     global.player#position#set Vector.{ x = float Cst.player_start_x; y = float Cst.player_start_y };

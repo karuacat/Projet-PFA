@@ -2,6 +2,8 @@ type challenge_type =
   | BoolVariable of string * bool
   | StringVariable of string * string
   | PowerCalculation
+  | GolemActivateHp
+  | GolemDealDamage
   | TypeDefinition
 
 type failure_reason =
@@ -36,3 +38,5 @@ val close_challenge : state -> unit
 val get_prompt : state -> string
 
 val get_last_failure_reason : state -> failure_reason option
+
+val extract_golem_damage : string -> int option

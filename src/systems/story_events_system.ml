@@ -6,7 +6,11 @@ let scholar_ref : npc_entity option ref = ref None
 let school_student_a_ref : npc_entity option ref = ref None
 let school_student_b_ref : npc_entity option ref = ref None
 let school_messenger_ref : npc_entity option ref = ref None
+let classroom_student_a_ref : npc_entity option ref = ref None
+let classroom_student_b_ref : npc_entity option ref = ref None
+let classroom_student_c_ref : npc_entity option ref = ref None
 let professor_lambda_ref : npc_entity option ref = ref None
+let aerin_ref : npc_entity option ref = ref None
 
 let knight_patrol_left_x = ref 0.0
 let knight_patrol_right_x = ref 0.0
@@ -33,6 +37,24 @@ let classroom_seat_target : (float * float) option ref = ref None
 let classroom_seating_stuck_ticks = ref 0
 let classroom_last_player_pos : Vector.t option ref = ref None
 let classroom_seating_total_ticks = ref 0
+let classroom_post_success_started = ref false
+let classroom_post_phase = ref 0
+let classroom_post_move_ticks = ref 0
+let aerin_post_target : (float * float) option ref = ref None
+let lambda_post_target : (float * float) option ref = ref None
+let student_a_post_target : (float * float) option ref = ref None
+let student_b_post_target : (float * float) option ref = ref None
+let student_c_post_target : (float * float) option ref = ref None
+let aerin_route_waypoint : (float * float) option ref = ref None
+let lambda_route_waypoint : (float * float) option ref = ref None
+let student_a_route_waypoint : (float * float) option ref = ref None
+let student_b_route_waypoint : (float * float) option ref = ref None
+let student_c_route_waypoint : (float * float) option ref = ref None
+let aerin_exit_started = ref false
+let aerin_exit_phase = ref 0
+let aerin_exit_waypoint : (float * float) option ref = ref None
+let aerin_exit_target : (float * float) option ref = ref None
+let aerin_exit_dialogue_started = ref false
 
 let sprite_row_down = 0
 let sprite_row_left = 1
@@ -110,6 +132,77 @@ let move_npc_toward_animated npc target_x target_y speed =
 let school_npc_target col row =
   let cx, cy = School_map.cell_center col row in
   (float_of_int (cx - 20), float_of_int (cy - 30))
+
+let classroom_npc_target col row =
+  let cx, cy = Classroom_map.cell_center col row in
+  (float_of_int (cx - 20), float_of_int (cy - 30))
+
+let classroom_marker_target marker fallback_col fallback_row =
+  match Classroom_map.marker_cells marker with
+  | (col, row) :: _ -> classroom_npc_target col row
+  | [] -> classroom_npc_target fallback_col fallback_row
+
+let sorted_cells_by_row_col cells =
+  List.sort (fun (c1, r1) (c2, r2) ->
+    let by_row = Int.compare r1 r2 in
+    if by_row <> 0 then by_row else Int.compare c1 c2
+  ) cells
+
+let spread_three_cells cells fallback =
+  let sorted = sorted_cells_by_row_col cells in
+  let len = List.length sorted in
+  if len >= 3 then [
+    List.nth sorted 0;
+    List.nth sorted (len / 2);
+    List.nth sorted (len - 1)
+  ] else fallback
+
+let assign_post_targets_from_markers () =
+  let fallback_b_cells = [ (1, 5); (1, 8); (1, 12) ] in
+  let b_cells = spread_three_cells (Classroom_map.marker_cells 'B') fallback_b_cells in
+  let b1 = List.nth b_cells 0 in
+  let b2 = List.nth b_cells 1 in
+  let b3 = List.nth b_cells 2 in
+  aerin_post_target := Some (classroom_marker_target 'A' 4 6);
+  lambda_post_target := Some (classroom_marker_target 'L' 4 9);
+  student_a_post_target := Some (classroom_npc_target (fst b1) (snd b1));
+  student_b_post_target := Some (classroom_npc_target (fst b2) (snd b2));
+  student_c_post_target := Some (classroom_npc_target (fst b3) (snd b3));
+  (* Route via the front lane to avoid crossing the player lane. *)
+  aerin_route_waypoint := Some (classroom_npc_target 9 4);
+  lambda_route_waypoint := Some (classroom_npc_target 9 4);
+  student_a_route_waypoint := Some (classroom_npc_target 3 4);
+  student_b_route_waypoint := Some (classroom_npc_target 3 4);
+  student_c_route_waypoint := Some (classroom_npc_target 3 4)
+
+let move_npc_ref_to_target npc_ref target_ref speed =
+  match !npc_ref, !target_ref with
+  | Some npc, Some (tx, ty) -> move_npc_toward_animated npc tx ty speed
+  | _ -> true
+
+let move_npc_ref_via_waypoint npc_ref waypoint_ref target_ref speed =
+  match !npc_ref, !target_ref with
+  | Some npc, Some (tx, ty) ->
+      (match !waypoint_ref with
+       | Some (wx, wy) ->
+           if move_npc_toward_animated npc wx wy speed then waypoint_ref := None;
+           false
+       | None -> move_npc_toward_animated npc tx ty speed)
+  | _ -> true
+
+let orient_classroom_bench_students_right () =
+  (match !classroom_student_a_ref with Some npc -> set_npc_sprite_row npc sprite_row_right | None -> ());
+  (match !classroom_student_b_ref with Some npc -> set_npc_sprite_row npc sprite_row_right | None -> ());
+  (match !classroom_student_c_ref with Some npc -> set_npc_sprite_row npc sprite_row_right | None -> ())
+
+let start_classroom_post_success_sequence (global : Global.t) =
+  if not !classroom_post_success_started then begin
+    classroom_post_success_started := true;
+    classroom_post_phase := 1;
+    classroom_post_move_ticks := 0;
+    assign_post_targets_from_markers ();
+    global.classroom_intro_completed <- false
+  end
 
 let choose_classroom_seat_target player_pos =
   let _ = player_pos in
@@ -189,9 +282,15 @@ let setup_school_npcs ~(student_a:npc_entity) ~(student_b:npc_entity) ~(messenge
   school_student_b_stage := 0;
   school_messenger_stage := 0
 
-let setup_classroom_npcs ~(professor:npc_entity) ~(student_a:npc_entity) ~(student_b:npc_entity) ~(student_c:npc_entity) =
+let setup_classroom_npcs ~(professor:npc_entity) ~(aerin:npc_entity) ~(student_a:npc_entity) ~(student_b:npc_entity) ~(student_c:npc_entity) =
   professor_lambda_ref := Some professor;
+  aerin_ref := Some aerin;
+  classroom_student_a_ref := Some student_a;
+  classroom_student_b_ref := Some student_b;
+  classroom_student_c_ref := Some student_c;
   set_npc_sprite_row professor sprite_row_down;
+  set_npc_sprite_row aerin sprite_row_up;
+  aerin#tag#set (InScene Scene.Classroom);
   set_npc_sprite_row student_a sprite_row_up;
   set_npc_sprite_row student_b sprite_row_up;
   set_npc_sprite_row student_c sprite_row_up;
@@ -201,10 +300,82 @@ let setup_classroom_npcs ~(professor:npc_entity) ~(student_a:npc_entity) ~(stude
   classroom_seating_stuck_ticks := 0;
   classroom_last_player_pos := None;
   classroom_seating_total_ticks := 0;
+  classroom_post_success_started := false;
+  classroom_post_phase := 0;
+  classroom_post_move_ticks := 0;
+  aerin_post_target := None;
+  lambda_post_target := None;
+  student_a_post_target := None;
+  student_b_post_target := None;
+  student_c_post_target := None;
   school_intro_started := false;
   school_intro_done := false;
   school_challenge_started := false;
   school_challenge_completed := false
+
+let remove_aerin_from_classroom () =
+  match !aerin_ref with
+  | Some aerin -> aerin#tag#set (InScene Scene.Menu)
+  | None -> ()
+
+let start_aerin_exit_sequence () =
+  let up_target =
+    match !aerin_ref with
+    | Some aerin ->
+        let pos = aerin#position#get in
+        (pos.Vector.x, pos.Vector.y -. (2.0 *. float_of_int Cst.classroom_cell_h))
+    | None -> classroom_npc_target 3 4
+  in
+  let sx, sy, sw, _ = Classroom_map.school_door_rect () in
+  let door_center_x = sx + (sw / 2) in
+  let door_target =
+    (float_of_int (door_center_x - 20), float_of_int (sy - 30))
+  in
+  aerin_exit_waypoint := Some up_target;
+  aerin_exit_target := Some door_target;
+  aerin_exit_started := true;
+  aerin_exit_phase := 1;
+  aerin_exit_dialogue_started := false
+
+let update_aerin_exit_sequence () =
+  if !aerin_exit_started then begin
+    let global = Global.get () in
+    match !aerin_exit_phase with
+    | 1 ->
+        let reached_up =
+          match !aerin_ref, !aerin_exit_waypoint with
+          | Some npc, Some (ux, uy) -> move_npc_toward_animated npc ux uy 2.0
+          | _ -> true
+        in
+        if reached_up then begin
+          aerin_exit_waypoint := None;
+          aerin_exit_phase := 2
+        end
+    | 2 ->
+        if (not !aerin_exit_dialogue_started) && not global.dialogue_state.active then begin
+          aerin_exit_dialogue_started := true;
+          Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
+            { speaker = "Aerin"; text = "Hmph. Debutant chanceux." };
+            { speaker = "Aerin"; text = "On se reverra." };
+          ])
+        end;
+        if !aerin_exit_dialogue_started && not global.dialogue_state.active then begin
+          aerin_exit_phase := 3
+        end
+    | 3 ->
+        let done_exit = move_npc_ref_to_target aerin_ref aerin_exit_target 2.2 in
+        if done_exit then begin
+          (match !aerin_ref with
+           | Some aerin -> aerin#tag#set (InScene Scene.Menu)
+           | None -> ());
+          aerin_exit_started := false;
+          aerin_exit_phase := 0;
+          aerin_exit_waypoint := None;
+          aerin_exit_target := None;
+          aerin_exit_dialogue_started := false
+        end
+    | _ -> ()
+  end
 
 let reset_for_new_game () =
   knight_moved_aside := false;
@@ -220,10 +391,23 @@ let reset_for_new_game () =
   classroom_seating_stuck_ticks := 0;
   classroom_last_player_pos := None;
   classroom_seating_total_ticks := 0;
+  classroom_post_success_started := false;
+  classroom_post_phase := 0;
+  classroom_post_move_ticks := 0;
+  aerin_post_target := None;
+  lambda_post_target := None;
+  student_a_post_target := None;
+  student_b_post_target := None;
+  student_c_post_target := None;
   school_intro_started := false;
   school_intro_done := false;
   school_challenge_started := false;
-  school_challenge_completed := false
+  school_challenge_completed := false;
+  aerin_exit_started := false;
+  aerin_exit_phase := 0;
+  aerin_exit_waypoint := None;
+  aerin_exit_target := None;
+  aerin_exit_dialogue_started := false
 
 let update_school_students_event () =
   let global = Global.get () in
@@ -338,6 +522,7 @@ let update_school_students_event () =
 
 let update_school_intro_event () =
   let global = Global.get () in
+  update_aerin_exit_sequence ();
   (match !professor_lambda_ref with
    | Some lambda ->
        if Scene.current () = Scene.Classroom then begin
@@ -350,9 +535,21 @@ let update_school_intro_event () =
            | _ -> ()
        end
    | None -> ());
+  (match !aerin_ref with
+   | Some aerin ->
+       if Scene.current () = Scene.Classroom then begin
+         if (not global.lambda_duel_completed) || !aerin_exit_started then
+           aerin#tag#set (InScene Scene.Classroom);
+         if global.dialogue_state.active then
+           match Dialogue.current_line global.dialogue_state with
+           | Some line when String.equal line.Component_defs.speaker "Aerin" ->
+               set_npc_sprite_row aerin sprite_row_down
+           | _ -> ()
+       end
+   | None -> ());
   if Scene.current () <> Scene.Classroom then
     ()
-  else if global.classroom_intro_completed then begin
+  else if global.classroom_intro_completed && not !classroom_post_success_started then begin
     classroom_seating_started := true;
     classroom_seating_done := true;
     school_intro_started := true;
@@ -361,7 +558,76 @@ let update_school_intro_event () =
     school_challenge_completed := true
   end
   else begin
-    if not !classroom_seating_started then begin
+    if !classroom_post_success_started then begin
+      (match !classroom_post_phase with
+       | 1 ->
+           if not global.dialogue_state.active then begin
+             let player_name =
+               if String.length global.player_name > 0 then global.player_name else "Apprenti"
+             in
+             Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
+               { speaker = "Professeur Lambda"; text = player_name ^ ", viens me voir quand tu seras pret !" };
+             ]);
+             classroom_post_phase := 2;
+             classroom_post_move_ticks := 0
+           end
+       | 2 ->
+           incr classroom_post_move_ticks;
+           let aerin_done = move_npc_ref_via_waypoint aerin_ref aerin_route_waypoint aerin_post_target 2.0 in
+           if (not global.dialogue_state.active) then begin
+             (match !aerin_ref, !aerin_post_target with
+              | Some npc, Some (x, y) when aerin_done -> npc#position#set Vector.{x; y}
+              | _ -> ());
+             classroom_post_phase := 3;
+             classroom_post_move_ticks := 0
+           end else if aerin_done || !classroom_post_move_ticks >= 220 then begin
+             (match !aerin_ref, !aerin_post_target with
+              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | _ -> ());
+              aerin_route_waypoint := None;
+           end
+       | 3 ->
+           global.player#velocity#set Vector.zero;
+           incr classroom_post_move_ticks;
+            let aerin_done = move_npc_ref_via_waypoint aerin_ref aerin_route_waypoint aerin_post_target 2.0 in
+            let lambda_done = move_npc_ref_via_waypoint professor_lambda_ref lambda_route_waypoint lambda_post_target 1.8 in
+           let start_students = !classroom_post_move_ticks >= 6 in
+            let s1_done = if start_students then move_npc_ref_via_waypoint classroom_student_a_ref student_a_route_waypoint student_a_post_target 1.8 else false in
+            let s2_done = if start_students then move_npc_ref_via_waypoint classroom_student_b_ref student_b_route_waypoint student_b_post_target 1.8 else false in
+            let s3_done = if start_students then move_npc_ref_via_waypoint classroom_student_c_ref student_c_route_waypoint student_c_post_target 1.8 else false in
+            if aerin_done && lambda_done && s1_done && s2_done && s3_done then begin
+             orient_classroom_bench_students_right ();
+             classroom_post_success_started := false;
+             classroom_post_phase := 0;
+             classroom_post_move_ticks := 0;
+             global.classroom_intro_completed <- true;
+             school_intro_done := true
+           end else if !classroom_post_move_ticks >= 420 then begin
+              (match !aerin_ref, !aerin_post_target with
+               | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+               | _ -> ());
+             (match !professor_lambda_ref, !lambda_post_target with
+              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | _ -> ());
+             (match !classroom_student_a_ref, !student_a_post_target with
+              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | _ -> ());
+             (match !classroom_student_b_ref, !student_b_post_target with
+              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | _ -> ());
+             (match !classroom_student_c_ref, !student_c_post_target with
+              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | _ -> ());
+             orient_classroom_bench_students_right ();
+             classroom_post_success_started := false;
+             classroom_post_phase := 0;
+             classroom_post_move_ticks := 0;
+             global.classroom_intro_completed <- true;
+             school_intro_done := true
+           end
+       | _ -> ())
+    end
+    else if not !classroom_seating_started then begin
       classroom_seating_started := true;
       classroom_seating_done := false;
       classroom_seat_target := Some (choose_classroom_seat_target (global.player#position#get));
@@ -426,14 +692,22 @@ let update_school_intro_event () =
             let on_success () =
               school_challenge_completed := true;
               school_intro_done := true;
-              global.classroom_intro_completed <- true;
+              global.classroom_intro_completed <- false;
+              (match !aerin_ref with
+               | Some aerin ->
+                   aerin#tag#set (InScene Scene.Classroom);
+                   set_npc_sprite_row aerin sprite_row_down
+               | None -> ());
               Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
-                { speaker = "Narration"; text = "Une lumiere apparait dans la salle." };
-                { speaker = "Narration"; text = "Une sphere d'energie se forme." };
-                { speaker = "Professeur Lambda"; text = "Bien." };
-                { speaker = "Professeur Lambda"; text = "Les nombres sont l'energie brute de la magie." };
-                { speaker = "Professeur Lambda"; text = "Continue, et n'oublie jamais la rigueur." };
-              ])
+                { speaker = "???"; text = "Serieusement ? C'etait ca ton sort ?" };
+                { speaker = "Narration"; text = "Un etudiant aux vetements luxueux se tourne vers vous." };
+                { speaker = "Aerin"; text = "Moi j'ai appris ca quand j'avais huit ans." };
+                { speaker = "Aerin"; text = "L'Academie devient vraiment trop facile..." };
+                { speaker = "Professeur Lambda"; text = "Aerin." };
+                { speaker = "Professeur Lambda"; text = "Peut-etre aimerais-tu montrer l'exemple ?" };
+                { speaker = "Narration"; text = "Aerin sourit." };
+              ]);
+              start_classroom_post_success_sequence global
             in
             let on_failure () =
               let failure_dialogue =

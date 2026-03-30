@@ -51,6 +51,61 @@ let convert_mouse_coords x y =
   let scale_y = float_of_int logical_height /. float_of_int window_height in
   (int_of_float (float_of_int x *. scale_x), int_of_float (float_of_int y *. scale_y))
 
+let move_player_to_classroom_marker_j_and_face_up (global : Global.t) =
+  let j_target =
+    match Classroom_map.marker_cells 'J' with
+    | (col, row) :: _ ->
+        let cx, cy = Classroom_map.cell_center col row in
+        (float_of_int (cx - (Cst.player_width / 2)), float_of_int (cy - Cst.player_height + 2))
+    | [] ->
+        let cx, cy = Classroom_map.cell_center 3 11 in
+        (float_of_int (cx - (Cst.player_width / 2)), float_of_int (cy - Cst.player_height + 2))
+  in
+  let x, y = j_target in
+  global.player#position#set Vector.{x; y};
+  Player.move_player global.player Vector.{x = 0.0; y = -.0.1};
+  global.player#velocity#set Vector.zero
+
+let start_lambda_duel (global : Global.t) challenge_state =
+  let rec start_damage_challenge () =
+    let on_success () =
+      let dealt =
+        match Code_challenge.extract_golem_damage challenge_state.Code_challenge.code with
+        | Some value -> value
+        | None -> 0
+      in
+      let remaining = max 0 (global.lambda_golem_hp - dealt) in
+      global.lambda_golem_hp <- remaining;
+      global.lambda_golem_hp_visible <- true;
+      if remaining > 0 then begin
+        start_damage_challenge ()
+      end else begin
+        global.lambda_duel_completed <- true;
+        global.lambda_duel_stage <- 0;
+        global.lambda_golem_hp <- 0;
+        global.lambda_golem_hp_visible <- false;
+        Story_events_system.start_aerin_exit_sequence ()
+      end
+    in
+    let on_failure () = () in
+    Code_challenge.start_challenge challenge_state
+      Code_challenge.GolemDealDamage on_success on_failure
+  in
+  global.lambda_duel_started <- true;
+  global.lambda_duel_completed <- false;
+  global.lambda_duel_stage <- 1;
+  global.lambda_golem_hp <- 20;
+  global.lambda_golem_hp_visible <- false;
+  move_player_to_classroom_marker_j_and_face_up global;
+  let on_success () =
+    global.lambda_duel_stage <- 2;
+    global.lambda_golem_hp_visible <- true;
+    start_damage_challenge ()
+  in
+  let on_failure () = () in
+  Code_challenge.start_challenge challenge_state
+    Code_challenge.GolemActivateHp on_success on_failure
+
 let handle_interaction () =
   let global = get_global_cached () in
   let dialogue_state = global.dialogue_state in
@@ -75,17 +130,27 @@ let handle_interaction () =
   else match Interaction.find_npc_at player_pos player_box with
   | Some npc ->
       let data = npc#npc_data#get in
-      let dialogue_to_show =
-        if data.Component_defs.name = "Chevalier Gardien" && global.knight_challenge_completed then
-          Dialogue.knight_guardian_post_victory
-        else
-          data.Component_defs.dialogue
-      in
-      Dialogue.start_dialogue dialogue_state dialogue_to_show;
-      Tutorial.complete_message tutorial_state "interact";
-      let current_scene = Scene.current () in
-      if current_scene = Scene.Town then
-        Tutorial.complete_message tutorial_state "town_explore"
+      if data.Component_defs.name = "Professeur Lambda"
+         && Scene.current () = Scene.Classroom
+         && global.classroom_intro_completed
+         && not global.lambda_duel_completed then begin
+        (match global.code_challenge_state with
+         | Some challenge_state when not challenge_state.Code_challenge.active ->
+             start_lambda_duel global challenge_state
+         | _ -> ())
+      end else begin
+        let dialogue_to_show =
+          if data.Component_defs.name = "Chevalier Gardien" && global.knight_challenge_completed then
+            Dialogue.knight_guardian_post_victory
+          else
+            data.Component_defs.dialogue
+        in
+        Dialogue.start_dialogue dialogue_state dialogue_to_show;
+        Tutorial.complete_message tutorial_state "interact";
+        let current_scene = Scene.current () in
+        if current_scene = Scene.Town then
+          Tutorial.complete_message tutorial_state "town_explore"
+      end
   | None ->
       match Interaction.find_sign_at player_pos player_box with
       | Some sign ->
@@ -190,11 +255,13 @@ let try_parse_special_char ~shift s =
 
 let is_professor_locked_challenge (global : Global.t) challenge_state =
   challenge_state.Code_challenge.active
-  && Scene.current () = Scene.Classroom
-  && not global.classroom_intro_completed
   &&
   match challenge_state.Code_challenge.challenge with
-  | Some Code_challenge.PowerCalculation -> true
+  | Some Code_challenge.PowerCalculation ->
+      Scene.current () = Scene.Classroom && not global.classroom_intro_completed
+  | Some Code_challenge.GolemActivateHp
+  | Some Code_challenge.GolemDealDamage ->
+      global.lambda_duel_started && not global.lambda_duel_completed
   | _ -> false
 
 let is_school_students_cinematic_active (global : Global.t) =
@@ -319,39 +386,13 @@ let rec handle_input () =
               end else if data.Component_defs.name = "Professeur Lambda" then begin
                 match global.code_challenge_state with
                 | Some challenge_state when not challenge_state.Code_challenge.active ->
-                    let on_success () =
-                      Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
-                        { Component_defs.speaker = "Narration"; text = "Une lumiere apparait dans la salle." };
-                        { Component_defs.speaker = "Narration"; text = "Une sphere d'energie se forme." };
-                        { Component_defs.speaker = "Professeur Lambda"; text = "Bien." };
-                        { Component_defs.speaker = "Professeur Lambda"; text = "Les nombres sont l'energie brute de la magie." };
-                        { Component_defs.speaker = "Professeur Lambda"; text = "Continue, et n'oublie jamais la rigueur." };
-                      ])
-                    in
-                    let on_failure () =
-                      let dlg =
-                        match Code_challenge.get_last_failure_reason challenge_state with
-                        | Some Code_challenge.TypeError ->
-                            Dialogue.create_dialogue [
-                              { Component_defs.speaker = "Professeur Lambda"; text = "Tu melanges des essences incompatibles." };
-                              { Component_defs.speaker = "Professeur Lambda"; text = "Les types sont les lois fondamentales de ce monde." };
-                              { Component_defs.speaker = "Narration"; text = "Une etincelle magique frappe le joueur." };
-                            ]
-                        | Some Code_challenge.SyntaxError ->
-                            Dialogue.create_dialogue [
-                              { Component_defs.speaker = "Narration"; text = "Ton sort s'effondre avant meme d'exister." };
-                              { Component_defs.speaker = "Professeur Lambda"; text = "La magie exige de la structure." };
-                              { Component_defs.speaker = "Narration"; text = "Le decor tremble legerement." };
-                            ]
-                        | _ ->
-                            Dialogue.create_dialogue [
-                              { Component_defs.speaker = "Professeur Lambda"; text = "Recommence. Structure ton incantation." };
-                            ]
-                      in
-                      Dialogue.start_dialogue global.dialogue_state dlg
-                    in
-                    Code_challenge.start_challenge challenge_state
-                      Code_challenge.PowerCalculation on_success on_failure
+                    if Scene.current () = Scene.Classroom
+                       && global.classroom_intro_completed
+                       && not global.lambda_duel_completed
+                    then
+                      start_lambda_duel global challenge_state
+                    else
+                      ()
                 | _ -> ()
               end
           | None ->

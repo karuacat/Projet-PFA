@@ -2,6 +2,8 @@ type challenge_type =
   | BoolVariable of string * bool
   | StringVariable of string * string
   | PowerCalculation
+  | GolemActivateHp
+  | GolemDealDamage
   | TypeDefinition
 
 type failure_reason =
@@ -109,6 +111,34 @@ let validate_power_calculation code =
   else
     false
 
+let validate_golem_activate_hp code =
+  let trimmed = String.trim code in
+  let pattern =
+    Str.regexp "^let[ \t]+pv[ \t]*=[ \t]*true[ \t]*;;?$"
+  in
+  Str.string_match pattern trimmed 0
+
+let extract_golem_damage code =
+  let trimmed = String.trim code in
+  let patterns = [
+    Str.regexp "^let[ \t]+d[eé]g[aâ]ts[ \t]*=[ \t]*\\([0-9]+\\)[ \t]*;;?$";
+    Str.regexp "^let[ \t]+degats[ \t]*=[ \t]*\\([0-9]+\\)[ \t]*;;?$"
+  ] in
+  let rec find_match = function
+    | [] -> None
+    | p :: rest ->
+        if Str.string_match p trimmed 0 then
+          Some (int_of_string (Str.matched_group 1 trimmed))
+        else
+          find_match rest
+  in
+  find_match patterns
+
+let validate_golem_deal_damage code =
+  match extract_golem_damage code with
+  | Some dmg -> dmg > 0
+  | None -> false
+
 let failure_reason_for_power code =
   let trimmed = String.trim code in
   let quoted_ten = Str.regexp "\"10\"" in
@@ -129,6 +159,10 @@ let validate_code state =
       validate_string_variable state.code expected_name expected_value
   | Some PowerCalculation ->
       validate_power_calculation state.code
+    | Some GolemActivateHp ->
+      validate_golem_activate_hp state.code
+    | Some GolemDealDamage ->
+      validate_golem_deal_damage state.code
   | Some TypeDefinition ->
       validate_type_definition state.code
 
@@ -145,6 +179,8 @@ let submit_code state =
       let reason =
         match state.challenge with
         | Some PowerCalculation -> failure_reason_for_power state.code
+        | Some GolemActivateHp
+        | Some GolemDealDamage -> GenericError
         | _ -> GenericError
       in
       state.last_failure_reason <- Some reason;
@@ -168,6 +204,10 @@ let get_prompt state =
     Printf.sprintf "Quel est ton nom ?"
   | Some PowerCalculation ->
       "Créer une variable puissance contenant la valeur 10 + 5."
+    | Some GolemActivateHp ->
+      "Active les points de vie du golem: let pv = true;;"
+    | Some GolemDealDamage ->
+        "Inflige des degats au golem: let degats = <valeur>;;"
   | Some TypeDefinition -> "Définis un type eleve avec ses propriétés:"
 
 let get_last_failure_reason state = state.last_failure_reason

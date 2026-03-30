@@ -20,6 +20,11 @@ type t = {
   mutable knight_challenge_completed : bool;
   mutable school_students_event_completed : bool;
   mutable classroom_intro_completed : bool;
+  mutable lambda_duel_started : bool;
+  mutable lambda_duel_stage : int;
+  mutable lambda_golem_hp : int;
+  mutable lambda_golem_hp_visible : bool;
+  mutable lambda_duel_completed : bool;
 }
 
 let state = ref None

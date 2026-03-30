@@ -172,8 +172,17 @@ let init_world ctx =
       "ressources/personnages/ProfLambda.png"
   in
   let lambda_sheet = Gfx.load_image ctx lambda_sprite_path in
+  let aerin_sheet = Gfx.load_image ctx "ressources/personnages/Aerin.png" in
   let lambda_texture =
     match Gfx.get_resource_opt lambda_sheet with
+    | Some img ->
+        let frame_w = 48 in
+        let frame_h = 48 in
+        Some (Texture.Sprite (img, frame_w, 0, frame_w, frame_h))
+    | None -> None
+  in
+  let aerin_texture =
+    match Gfx.get_resource_opt aerin_sheet with
     | Some img ->
         let frame_w = 48 in
         let frame_h = 48 in
@@ -214,6 +223,19 @@ let init_world ctx =
       Scene.Classroom
   in
 
+  let aerin_stool_x, aerin_stool_y = Classroom_map.cell_center 17 7 in
+  let aerin =
+    Npc.create_npc ?texture:aerin_texture "Aerin" (aerin_stool_x - 20) (aerin_stool_y - 30)
+      {
+        name = "Aerin";
+        dialogue =
+          Dialogue.create_dialogue
+            [ { speaker = "Aerin"; text = "Moi j'ai appris ca quand j'avais huit ans." } ];
+        scene = Scene.Classroom;
+      }
+      Scene.Classroom
+  in
+
   let lambda_cx, lambda_cy = Classroom_map.cell_center 14 3 in
   let professor_lambda =
     Npc.create_npc ?texture:lambda_texture "Professeur Lambda" (lambda_cx - 22) (lambda_cy - 30)
@@ -228,6 +250,7 @@ let init_world ctx =
   in
   Story_events_system.setup_classroom_npcs
     ~professor:(professor_lambda :> Component_defs.npc_entity)
+    ~aerin:(aerin :> Component_defs.npc_entity)
     ~student_a:(classroom_student_a :> Component_defs.npc_entity)
     ~student_b:(classroom_student_b :> Component_defs.npc_entity)
     ~student_c:(classroom_student_c :> Component_defs.npc_entity);

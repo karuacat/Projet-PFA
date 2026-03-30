@@ -10,6 +10,11 @@ type data = {
   skin : string;
   school_students_event_completed : bool;
   classroom_intro_completed : bool;
+  lambda_duel_started : bool;
+  lambda_duel_stage : int;
+  lambda_golem_hp : int;
+  lambda_golem_hp_visible : bool;
+  lambda_duel_completed : bool;
 }
 
 let save_path = "savegame.dat"
@@ -40,6 +45,11 @@ let save (global : Global.t) =
     skin = Player.get_skin_tag ();
     school_students_event_completed = global.school_students_event_completed;
     classroom_intro_completed = global.classroom_intro_completed;
+    lambda_duel_started = global.lambda_duel_started;
+    lambda_duel_stage = global.lambda_duel_stage;
+    lambda_golem_hp = global.lambda_golem_hp;
+    lambda_golem_hp_visible = global.lambda_golem_hp_visible;
+    lambda_duel_completed = global.lambda_duel_completed;
   }
   in
   try
@@ -72,5 +82,10 @@ let apply_to_global (global : Global.t) payload =
   global.knight_challenge_completed <- payload.knight_challenge_completed;
   global.school_students_event_completed <- payload.school_students_event_completed;
   global.classroom_intro_completed <- payload.classroom_intro_completed;
+  global.lambda_duel_started <- payload.lambda_duel_started;
+  global.lambda_duel_stage <- payload.lambda_duel_stage;
+  global.lambda_golem_hp <- payload.lambda_golem_hp;
+  global.lambda_golem_hp_visible <- payload.lambda_golem_hp_visible;
+  global.lambda_duel_completed <- payload.lambda_duel_completed;
   Player.set_skin_tag payload.skin;
   Player.refresh_player_sprite global.player
