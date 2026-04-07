@@ -20,5 +20,22 @@ let check_scene_tutorials () =
           town_interact_tutorial_shown := true
         end
     | Scene.School -> ()
+    | Scene.Library ->
+        let global = Global.get () in
+        Tutorial.complete_message global.tutorial_state "find_library";
+        if not global.library_intro_seen then begin
+          global.library_intro_seen <- true;
+          if Library_guide.should_show_intro global.library_guide_state then begin
+            Library_guide.mark_intro_shown global.library_guide_state;
+            if not global.dialogue_state.active then
+              Dialogue.start_dialogue global.dialogue_state
+                (Dialogue.create_dialogue [
+                  {
+                    Component_defs.speaker = "Moi";
+                    text = "Ce livre a l'air etrange et si j'allais le voir ?";
+                  };
+                ])
+          end
+        end
     | Scene.Classroom -> ()
   end

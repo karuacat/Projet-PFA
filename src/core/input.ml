@@ -43,6 +43,58 @@ let distance_sq v1 v2 =
   let dx = Vector.sub v1 v2 in
   Vector.dot dx dx
 
+let sprite_row_up = 0
+let sprite_row_left = 1
+let sprite_row_right = 2
+let sprite_row_down = 3
+
+let set_npc_sprite_row npc row =
+  match npc#texture#get with
+  | Texture.Sprite (img, sx, _, frame_w, frame_h) ->
+      let col = if frame_w > 0 then sx / frame_w else 0 in
+      let block_start = (col / 3) * 3 in
+      let walk_col = block_start in
+      npc#texture#set (Texture.Sprite (img, walk_col * frame_w, row * frame_h, frame_w, frame_h))
+  | _ -> ()
+
+let turn_npc_toward_player (npc : Component_defs.npc_entity) (player_pos : Vector.t) =
+  let npc_pos = npc#position#get in
+  let dx = player_pos.Vector.x -. npc_pos.Vector.x in
+  let dy = player_pos.Vector.y -. npc_pos.Vector.y in
+  let face_row =
+    if abs_float dx > abs_float dy then
+      if dx >= 0.0 then sprite_row_right else sprite_row_left
+    else if dy >= 0.0 then
+      sprite_row_down
+    else
+      sprite_row_up
+  in
+  set_npc_sprite_row npc face_row
+
+let start_library_training (global : Global.t) =
+  if Library_guide.training_complete global.library_guide_state then
+    Library_guide.reset_training_progress global.library_guide_state
+  else
+    match global.code_challenge_state with
+    | Some challenge_state when not challenge_state.Code_challenge.active ->
+        let challenge = Library_guide.next_training_challenge global.library_guide_state in
+        let on_success () =
+          Library_guide.mark_training_success global.library_guide_state;
+          Dialogue.start_dialogue global.dialogue_state
+            (Dialogue.create_dialogue [
+              { Component_defs.speaker = "Moi"; text = "Parfait, je commence a comprendre les types." };
+            ])
+        in
+        let on_failure () =
+          Dialogue.start_dialogue global.dialogue_state
+            (Dialogue.create_dialogue [
+              { Component_defs.speaker = "Moi"; text = "Je dois revoir les types dans le chapitre." };
+            ])
+        in
+        Library_guide.close_panel global.library_guide_state;
+        Code_challenge.start_challenge challenge_state challenge on_success on_failure
+    | _ -> ()
+
 let convert_mouse_coords x y =
   let global = get_global_cached () in
   let window_width, window_height = Gfx.get_window_size global.window in
@@ -114,8 +166,16 @@ let handle_interaction () =
   let player_pos = player#position#get in
   let player_box = player#box#get in
 
+  if global.dynamic_magic_cinematic_active && not dialogue_state.active then
+    ()
+  else
+
   if dialogue_state.active then begin
     let was_finished = Dialogue.is_finished dialogue_state in
+    let finished_line =
+      if was_finished then Dialogue.current_line dialogue_state
+      else None
+    in
     Dialogue.next_line dialogue_state;
     if was_finished then begin
       let current_scene = Scene.current () in
@@ -124,7 +184,14 @@ let handle_interaction () =
       else if current_scene = Scene.Town then begin
         Tutorial.complete_message tutorial_state "interact";
         Tutorial.show_message tutorial_state "town_explore"
-      end
+      end;
+      (match finished_line with
+       | Some line
+         when current_scene = Scene.Classroom
+              && String.equal line.Component_defs.speaker "Professeur Lambda"
+              && String.equal line.Component_defs.text "Les vrais mages lisent autant qu'ils ecrivent." ->
+           Tutorial.show_message tutorial_state "find_library"
+       | _ -> ())
     end
   end
   else match Interaction.find_npc_at player_pos player_box with
@@ -139,8 +206,20 @@ let handle_interaction () =
              start_lambda_duel global challenge_state
          | _ -> ())
       end else begin
+        turn_npc_toward_player npc player_pos;
         let dialogue_to_show =
-          if data.Component_defs.name = "Chevalier Gardien" && global.knight_challenge_completed then
+          if data.Component_defs.name = "Professeur Lambda"
+             && Scene.current () = Scene.Classroom
+             && global.lambda_duel_completed then
+            Dialogue.create_dialogue [
+              { Component_defs.speaker = "Professeur Lambda"; text = "Si tu veux progresser..." };
+              { Component_defs.speaker = "Professeur Lambda"; text = "Va a la bibliotheque." };
+              {
+                Component_defs.speaker = "Professeur Lambda";
+                text = "Les vrais mages lisent autant qu'ils ecrivent.";
+              };
+            ]
+          else if data.Component_defs.name = "Chevalier Gardien" && global.knight_challenge_completed then
             Dialogue.knight_guardian_post_victory
           else
             data.Component_defs.dialogue
@@ -156,7 +235,12 @@ let handle_interaction () =
       | Some sign ->
           let data = sign#sign_data#get in
           let dialogue_to_show =
-            if data.title = "Coffre de l'Apprenti" && not global.house_exit_attempted then
+            if data.title = "Livre d'entrainement" && Scene.current () = Scene.Library then (
+              Library_guide.open_panel global.library_guide_state;
+              Tutorial.complete_message tutorial_state "find_library";
+              None
+            )
+            else if data.title = "Coffre de l'Apprenti" && not global.house_exit_attempted then
               None
             else if data.title = "Livre Ancien" then
               if not global.has_secret_book then (
@@ -220,6 +304,14 @@ let is_space_key s =
 let is_tab_key s =
   String.equal (String.lowercase_ascii s) "tab"
 
+let is_left_key s =
+  let lower = String.lowercase_ascii s in
+  lower = "left" || lower = "left arrow" || lower = "arrowleft"
+
+let is_right_key s =
+  let lower = String.lowercase_ascii s in
+  lower = "right" || lower = "right arrow" || lower = "arrowright"
+
 let try_parse_special_char ~shift s =
   let lower = String.lowercase_ascii s in
   match lower with
@@ -239,15 +331,25 @@ let try_parse_special_char ~shift s =
   | "plus" | "kp plus" | "kp_plus" -> Some '+'
   (* Numpad digits are always digits. *)
   | "kp 1" | "kp1" -> Some '1'
+  | "kp_1" | "keypad 1" | "numpad 1" | "kp end" -> Some '1'
   | "kp 2" | "kp2" -> Some '2'
+  | "kp_2" | "keypad 2" | "numpad 2" | "kp down" -> Some '2'
   | "kp 3" | "kp3" -> Some '3'
+  | "kp_3" | "keypad 3" | "numpad 3" | "kp page down" -> Some '3'
   | "kp 4" | "kp4" -> Some '4'
+  | "kp_4" | "keypad 4" | "numpad 4" | "kp left" -> Some '4'
   | "kp 5" | "kp5" -> Some '5'
+  | "kp_5" | "keypad 5" | "numpad 5" | "kp begin" -> Some '5'
   | "kp 6" | "kp6" -> Some '6'
+  | "kp_6" | "keypad 6" | "numpad 6" | "kp right" -> Some '6'
   | "kp 7" | "kp7" -> Some '7'
+  | "kp_7" | "keypad 7" | "numpad 7" | "kp home" -> Some '7'
   | "kp 8" | "kp8" -> Some '8'
+  | "kp_8" | "keypad 8" | "numpad 8" | "kp up" -> Some '8'
   | "kp 9" | "kp9" -> Some '9'
+  | "kp_9" | "keypad 9" | "numpad 9" | "kp page up" -> Some '9'
   | "kp 0" | "kp0" -> Some '0'
+  | "kp_0" | "keypad 0" | "numpad 0" | "kp insert" -> Some '0'
   (* Regular single ASCII characters *)
   | _ when String.length s = 1 && Char.code s.[0] >= 32 && Char.code s.[0] <= 126 ->
       Some (if shift then Char.uppercase_ascii s.[0] else s.[0])
@@ -273,6 +375,8 @@ let is_classroom_entry_cinematic_active (global : Global.t) =
 let can_move_player (global : Global.t) =
   not (is_school_students_cinematic_active global)
   && not (is_classroom_entry_cinematic_active global)
+  && not global.dynamic_magic_cinematic_active
+  && not global.library_guide_state.active
 
 let is_shift_pressed () =
   has_key "shift" || has_key "lshift" || has_key "rshift" ||
@@ -286,6 +390,9 @@ let rec handle_input () =
           Hashtbl.replace key_pressed_table s ();
         set_key s;
         let global = get_global_cached () in
+        if global.library_guide_state.active && is_backspace_key s then
+          ()
+        else
         (match global.character_creation_state with
          | Some char_state when char_state.input_focused ->
              if is_backspace_key s then
@@ -339,6 +446,10 @@ let rec handle_input () =
                    Code_challenge.submit_code challenge_state
                 ) else if is_tab_key s && not challenge_locked then
                  Code_challenge.close_challenge challenge_state
+                 else if is_left_key s then
+                   Code_challenge.move_cursor_left challenge_state
+                 else if is_right_key s then
+                   Code_challenge.move_cursor_right challenge_state
                else if is_space_key s then
                  Code_challenge.add_char challenge_state ' '
                else begin
@@ -359,7 +470,9 @@ let rec handle_input () =
                end
              )
          | _ -> ());
-        (if String.equal (String.lowercase_ascii s) "c" && not global.dialogue_state.active then
+        (if String.equal (String.lowercase_ascii s) "c"
+          && not global.dialogue_state.active
+          && not global.library_guide_state.active then
           let player = get_player_cached () in
           let player_pos = player#position#get in
           let player_box = player#box#get in
@@ -432,7 +545,18 @@ let rec handle_input () =
         if pressed then begin
           let global = get_global_cached () in
           let x', y' = convert_mouse_coords x y in
-          match global.menu_state with
+          if global.dynamic_magic_cinematic_active then
+            (match Library_cinematic_system.handle_click x' y' with
+             | Library_cinematic_system.Click_save ->
+                 let ok = Savegame.save global in
+                 Library_cinematic_system.set_save_feedback ok
+             | Library_cinematic_system.Click_continue
+             | Library_cinematic_system.Click_none -> ())
+          else if global.library_guide_state.active then begin
+            match Library_guide.click global.library_guide_state x' y' with
+            | Library_guide.Start_training -> start_library_training global
+            | _ -> ()
+          end else match global.menu_state with
           | Some menu ->
               Menu.set_mouse_position menu x' y';
               Menu.update_hover menu;
@@ -494,6 +618,7 @@ let () =
       || (match global.code_challenge_state with
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
+      || global.library_guide_state.active
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_up;
@@ -513,6 +638,7 @@ let () =
       || (match global.code_challenge_state with
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
+      || global.library_guide_state.active
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_down;
@@ -532,6 +658,7 @@ let () =
       || (match global.code_challenge_state with
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
+      || global.library_guide_state.active
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_right;
@@ -551,6 +678,7 @@ let () =
       || (match global.code_challenge_state with
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
+      || global.library_guide_state.active
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_left;
@@ -565,6 +693,9 @@ let () =
   
   register "space" (fun () ->
     let global = get_global_cached () in
+    if global.library_guide_state.active then
+      ()
+    else
     match global.code_challenge_state with
     | Some challenge_state when challenge_state.Code_challenge.active -> ()
     | _ ->
@@ -581,6 +712,7 @@ let () =
       || (match global.code_challenge_state with
           | Some challenge_state -> challenge_state.Code_challenge.active
           | None -> false)
+      || global.library_guide_state.active
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing then
       if was_key_just_pressed "e" then begin
@@ -599,6 +731,9 @@ let () =
   register "escape" (fun () ->
     if was_key_just_pressed "escape" then begin
       let global = get_global_cached () in
+      if global.library_guide_state.active then
+        Library_guide.close_panel global.library_guide_state
+      else
       match global.code_challenge_state with
       | Some challenge_state when challenge_state.Code_challenge.active ->
           if not (is_professor_locked_challenge global challenge_state) then

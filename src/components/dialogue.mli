@@ -36,3 +36,5 @@ val knight_guardian_admission_success : dialogue
 val knight_guardian_post_victory : dialogue
 
 val secret_book_for_name : string -> dialogue
+val dynamic_magic_professors : dialogue
+val dynamic_magic_book : dialogue

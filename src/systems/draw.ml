@@ -11,6 +11,7 @@ let black = Gfx.color 0 0 0 255
 let house_background : Gfx.surface Gfx.resource option ref = ref None
 let town_background : Gfx.surface Gfx.resource option ref = ref None
 let school_background : Gfx.surface Gfx.resource option ref = ref None
+let library_background : Gfx.surface Gfx.resource option ref = ref None
 let classroom_background : Gfx.surface Gfx.resource option ref = ref None
 
 let get_house_background ctx =
@@ -35,6 +36,14 @@ let get_school_background ctx =
   | None ->
   let res = Gfx.load_image ctx "ressources/scenes/School.png" in
       school_background := Some res;
+      res
+
+let get_library_background ctx =
+  match !library_background with
+  | Some res -> res
+  | None ->
+      let res = Gfx.load_image ctx "ressources/scenes/Library.png" in
+      library_background := Some res;
       res
 
 let get_classroom_background ctx =
@@ -76,6 +85,7 @@ let update _dt el =
     | Scene.House -> black
     | Scene.Town -> white
     | Scene.School -> white
+    | Scene.Library -> white
     | Scene.Classroom -> white
   in
   Gfx.set_color ctx bg;
@@ -98,6 +108,11 @@ let update _dt el =
          (match Gfx.get_resource_opt school_bg with
          | Some img -> Gfx.blit_scale ctx surface img 0 0 Cst.window_width Cst.window_height
          | None -> ())
+      | Scene.Library ->
+        let library_bg = get_library_background ctx in
+        (match Gfx.get_resource_opt library_bg with
+        | Some img -> Gfx.blit_scale ctx surface img 0 0 Cst.window_width Cst.window_height
+        | None -> ())
       | Scene.Classroom ->
          let classroom_bg = get_classroom_background ctx in
          (match Gfx.get_resource_opt classroom_bg with

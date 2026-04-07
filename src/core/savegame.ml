@@ -15,6 +15,8 @@ type data = {
   lambda_golem_hp : int;
   lambda_golem_hp_visible : bool;
   lambda_duel_completed : bool;
+  dynamic_magic_cinematic_done : bool;
+  library_intro_seen : bool;
 }
 
 let save_path = "savegame.dat"
@@ -50,6 +52,8 @@ let save (global : Global.t) =
     lambda_golem_hp = global.lambda_golem_hp;
     lambda_golem_hp_visible = global.lambda_golem_hp_visible;
     lambda_duel_completed = global.lambda_duel_completed;
+    dynamic_magic_cinematic_done = global.dynamic_magic_cinematic_done;
+    library_intro_seen = global.library_intro_seen;
   }
   in
   try
@@ -87,5 +91,12 @@ let apply_to_global (global : Global.t) payload =
   global.lambda_golem_hp <- payload.lambda_golem_hp;
   global.lambda_golem_hp_visible <- payload.lambda_golem_hp_visible;
   global.lambda_duel_completed <- payload.lambda_duel_completed;
+  global.dynamic_magic_cinematic_done <- payload.dynamic_magic_cinematic_done;
+  global.dynamic_magic_cinematic_active <- false;
+  global.dynamic_magic_phase <- 0;
+  global.dynamic_magic_timer <- 0.0;
+  global.dynamic_magic_pending_target_scene <- None;
+  global.library_intro_seen <- payload.library_intro_seen;
+  Library_guide.close_panel global.library_guide_state;
   Player.set_skin_tag payload.skin;
   Player.refresh_player_sprite global.player

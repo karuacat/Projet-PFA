@@ -39,9 +39,11 @@ let update dt =
           Collision_system.update dt;
           Door_transition_system.update dt;
           Draw_system.update dt;
+          Library_cinematic_system.update dt;
           Tutorial_system.update dt;
           Dialogue_system.update dt;
           Code_challenge_system.update dt Seq.empty;
+          Library_guide_system.update dt Seq.empty;
           
           Gfx.commit global.ctx;
           None
@@ -61,15 +63,17 @@ let run () =
   let dialogue_state = Dialogue.create_state () in
   let tutorial_state = Tutorial.create_state () in
   let code_challenge_state = Code_challenge.create_state () in
+  let library_guide_state = Library_guide.create_state () in
   
   Tutorial.register_message tutorial_state "move" "Utiliser \"ZQSD\"\npour se déplacer";
   Tutorial.register_message tutorial_state "menu" "Utiliser \"Echap\"\npour ouvrir le menu";
   Tutorial.register_message tutorial_state "interact" "Utiliser \"ESPACE\"\npour intéragir";
   Tutorial.register_message tutorial_state "town_explore" "Explore les rues d'OCamlon\net parle aux habitants";
   Tutorial.register_message tutorial_state "town_signs" "Lis les panneaux pour\ntrouver l'Académie";
+  Tutorial.register_message tutorial_state "find_library" "Trouver la bibliothèque";
   
   let menu = Menu.create () in
-  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None; on_escape_pressed = None; player_name = "Apprenti"; code_challenge_state = Some code_challenge_state; house_exit_attempted = false; has_secret_book = false; chest_challenge_completed = false; knight_challenge_completed = false; school_students_event_completed = false; classroom_intro_completed = false; lambda_duel_started = false; lambda_duel_stage = 0; lambda_golem_hp = 20; lambda_golem_hp_visible = false; lambda_duel_completed = false } in
+  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None; on_escape_pressed = None; player_name = "Apprenti"; code_challenge_state = Some code_challenge_state; house_exit_attempted = false; has_secret_book = false; chest_challenge_completed = false; knight_challenge_completed = false; school_students_event_completed = false; classroom_intro_completed = false; lambda_duel_started = false; lambda_duel_stage = 0; lambda_golem_hp = 20; lambda_golem_hp_visible = false; lambda_duel_completed = false; dynamic_magic_cinematic_done = false; dynamic_magic_cinematic_active = false; dynamic_magic_phase = 0; dynamic_magic_timer = 0.0; dynamic_magic_pending_target_scene = None; dynamic_magic_spawn_x = 0; dynamic_magic_spawn_y = 0; library_guide_state; library_intro_seen = false } in
   Global.set global;
   
   let rec start_new_game () =
@@ -86,6 +90,15 @@ let run () =
     global.lambda_golem_hp <- 20;
     global.lambda_golem_hp_visible <- false;
     global.lambda_duel_completed <- false;
+    global.dynamic_magic_cinematic_done <- false;
+    global.dynamic_magic_cinematic_active <- false;
+    global.dynamic_magic_phase <- 0;
+    global.dynamic_magic_timer <- 0.0;
+    global.dynamic_magic_pending_target_scene <- None;
+    global.dynamic_magic_spawn_x <- 0;
+    global.dynamic_magic_spawn_y <- 0;
+    Library_guide.close_panel global.library_guide_state;
+    global.library_intro_seen <- false;
     Story_events_system.reset_for_new_game ();
     global.player_name <- "Apprenti";
     global.player#position#set Vector.{ x = float Cst.player_start_x; y = float Cst.player_start_y };

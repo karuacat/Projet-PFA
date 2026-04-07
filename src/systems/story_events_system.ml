@@ -55,6 +55,13 @@ let aerin_exit_phase = ref 0
 let aerin_exit_waypoint : (float * float) option ref = ref None
 let aerin_exit_target : (float * float) option ref = ref None
 let aerin_exit_dialogue_started = ref false
+let lambda_post_aerin_dialogue_started = ref false
+let students_exit_started = ref false
+let students_exit_phase = ref 0
+let lambda_return_started = ref false
+let school_students_after_course_spawned = ref false
+let classroom_students_hidden_after_exit = ref false
+let previous_scene : Scene.scene option ref = ref None
 
 let sprite_row_down = 0
 let sprite_row_left = 1
@@ -318,6 +325,17 @@ let remove_aerin_from_classroom () =
   | Some aerin -> aerin#tag#set (InScene Scene.Menu)
   | None -> ()
 
+let clear_classroom_students_for_return () =
+  (match !classroom_student_a_ref with
+   | Some npc -> npc#tag#set (InScene Scene.Menu)
+   | None -> ());
+  (match !classroom_student_b_ref with
+   | Some npc -> npc#tag#set (InScene Scene.Menu)
+   | None -> ());
+  (match !classroom_student_c_ref with
+   | Some npc -> npc#tag#set (InScene Scene.Menu)
+   | None -> ())
+
 let start_aerin_exit_sequence () =
   let up_target =
     match !aerin_ref with
@@ -335,7 +353,75 @@ let start_aerin_exit_sequence () =
   aerin_exit_target := Some door_target;
   aerin_exit_started := true;
   aerin_exit_phase := 1;
-  aerin_exit_dialogue_started := false
+  aerin_exit_dialogue_started := false;
+  lambda_post_aerin_dialogue_started := false
+
+let setup_students_exit_targets () =
+  let sx, sy, sw, _ = Classroom_map.school_door_rect () in
+  let door_center_x = sx + (sw / 2) in
+  let door_target = (float_of_int (door_center_x - 20), float_of_int (sy - 30)) in
+  student_a_post_target := Some door_target;
+  student_b_post_target := Some door_target;
+  student_c_post_target := Some door_target
+
+let setup_lambda_return_to_desk () =
+  let desk_col, desk_row = 14, 3 in
+  lambda_post_target := Some (classroom_npc_target desk_col desk_row)
+
+let send_classroom_students_to_school_map () =
+  let global = Global.get () in
+  let player_pos = global.player#position#get in
+  let available = School_map.post_course_spawn_cells () in
+  let min_distance_sq = (2.0 *. float_of_int Cst.school_cell_w) ** 2.0 in
+  let far_enough cells =
+    List.filter (fun (col, row) ->
+      let cx, cy = School_map.cell_center col row in
+      let dx = float_of_int cx -. player_pos.Vector.x in
+      let dy = float_of_int cy -. player_pos.Vector.y in
+      (dx *. dx) +. (dy *. dy) >= min_distance_sq
+    ) cells
+  in
+  let filtered = far_enough available in
+  let fallback_cells = [ (5, 5); (6, 4); (7, 5) ] in
+  let pick_three cells =
+    if List.length cells >= 3 then begin
+      let arr = Array.of_list cells in
+      let n = Array.length arr in
+      let i1 = Random.int n in
+      let rec pick_other avoid =
+        let i = Random.int n in
+        if List.mem i avoid then pick_other avoid else i
+      in
+      let i2 = pick_other [i1] in
+      let i3 = pick_other [i1; i2] in
+      [ arr.(i1); arr.(i2); arr.(i3) ]
+    end else
+      fallback_cells
+  in
+  let picks = pick_three filtered in
+  let e1 = List.nth picks 0 in
+  let e2 = List.nth picks 1 in
+  let e3 = List.nth picks 2 in
+  let place_student npc_ref (col, row) dialogue_text_opt =
+    match !npc_ref with
+    | Some npc ->
+        let x, y = school_npc_target col row in
+        npc#position#set Vector.{x; y};
+        npc#tag#set (InScene Scene.School);
+        set_npc_sprite_row npc sprite_row_down;
+        let data = npc#npc_data#get in
+        let updated_dialogue =
+          match dialogue_text_opt with
+          | Some text -> Dialogue.create_dialogue [ { speaker = "Eleve"; text } ]
+          | None -> data.dialogue
+        in
+        npc#npc_data#set { data with scene = Scene.School; dialogue = updated_dialogue }
+    | None -> ()
+  in
+  place_student school_student_a_ref e1 (Some "La bibliotheque est en haut de l'echelle.");
+  place_student school_student_b_ref e2 (Some "Les types... c'est la base de tout en magie.");
+  place_student school_messenger_ref e3 (Some "Un type decrit exactement ce qu'on peut faire.");
+  school_students_after_course_spawned := true
 
 let update_aerin_exit_sequence () =
   if !aerin_exit_started then begin
@@ -368,11 +454,82 @@ let update_aerin_exit_sequence () =
           (match !aerin_ref with
            | Some aerin -> aerin#tag#set (InScene Scene.Menu)
            | None -> ());
+          aerin_exit_phase := 4;
+          aerin_exit_waypoint := None
+        end
+    | 4 ->
+        if (not !lambda_post_aerin_dialogue_started) && not global.dialogue_state.active then begin
+          let player_name = if String.length global.player_name > 0 then global.player_name else "Apprenti" in
+          lambda_post_aerin_dialogue_started := true;
+          Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
+            {
+              speaker = "Professeur Lambda";
+              text =
+                "Bien le cours est fini pour aujourd'hui, "
+                ^ player_name
+                ^ " vient me voir avant de partir s'il te plait !";
+            };
+          ])
+        end;
+        if !lambda_post_aerin_dialogue_started && not global.dialogue_state.active then begin
+          (match !aerin_ref with
+           | Some aerin -> aerin#tag#set (InScene Scene.Menu)
+           | None -> ());
           aerin_exit_started := false;
           aerin_exit_phase := 0;
           aerin_exit_waypoint := None;
           aerin_exit_target := None;
-          aerin_exit_dialogue_started := false
+          aerin_exit_dialogue_started := false;
+          lambda_post_aerin_dialogue_started := false;
+          setup_students_exit_targets ();
+          setup_lambda_return_to_desk ();
+          students_exit_started := true;
+          students_exit_phase := 1;
+          lambda_return_started := false
+        end
+    | _ -> ()
+  end;
+  if !students_exit_started then begin
+    (match !aerin_ref with
+     | Some aerin -> aerin#tag#set (InScene Scene.Menu)
+     | None -> ());
+    match !students_exit_phase with
+    | 1 ->
+        let s1_done = move_npc_ref_to_target classroom_student_a_ref student_a_post_target 2.1 in
+        let s2_done = move_npc_ref_to_target classroom_student_b_ref student_b_post_target 2.0 in
+        let s3_done = move_npc_ref_to_target classroom_student_c_ref student_c_post_target 2.0 in
+        if s1_done then
+          (match !classroom_student_a_ref with
+           | Some npc -> npc#tag#set (InScene Scene.Menu)
+           | None -> ());
+        if s2_done then
+          (match !classroom_student_b_ref with
+           | Some npc -> npc#tag#set (InScene Scene.Menu)
+           | None -> ());
+        if s3_done then
+          (match !classroom_student_c_ref with
+           | Some npc -> npc#tag#set (InScene Scene.Menu)
+           | None -> ());
+        if s1_done && s2_done && s3_done then begin
+          send_classroom_students_to_school_map ();
+          students_exit_phase := 2;
+          lambda_return_started := true
+        end
+    | 2 ->
+        if !lambda_return_started then begin
+          let lambda_done = move_npc_ref_to_target professor_lambda_ref lambda_post_target 1.5 in
+          if lambda_done then begin
+            (match !professor_lambda_ref with
+             | Some lambda -> set_npc_sprite_row lambda sprite_row_down
+             | None -> ());
+            students_exit_started := false;
+            students_exit_phase := 0;
+            lambda_return_started := false;
+            student_a_post_target := None;
+            student_b_post_target := None;
+            student_c_post_target := None;
+            lambda_post_target := None
+          end
         end
     | _ -> ()
   end
@@ -407,7 +564,17 @@ let reset_for_new_game () =
   aerin_exit_phase := 0;
   aerin_exit_waypoint := None;
   aerin_exit_target := None;
-  aerin_exit_dialogue_started := false
+  aerin_exit_dialogue_started := false;
+  lambda_post_aerin_dialogue_started := false;
+  students_exit_started := false;
+  students_exit_phase := 0;
+  lambda_return_started := false;
+  school_students_after_course_spawned := false;
+  classroom_students_hidden_after_exit := false;
+  previous_scene := None;
+  (match !school_student_a_ref with Some npc -> npc#tag#set (InScene Scene.School) | None -> ());
+  (match !school_student_b_ref with Some npc -> npc#tag#set (InScene Scene.School) | None -> ());
+  (match !school_messenger_ref with Some npc -> npc#tag#set (InScene Scene.School) | None -> ())
 
 let update_school_students_event () =
   let global = Global.get () in
@@ -415,9 +582,14 @@ let update_school_students_event () =
   if Scene.current () <> Scene.School then
     ()
   else if global.school_students_event_completed then begin
-    (match !school_student_a_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ());
-    (match !school_student_b_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ());
-    (match !school_messenger_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ())
+    if global.lambda_duel_completed then begin
+      if not !school_students_after_course_spawned then
+        send_classroom_students_to_school_map ()
+    end else begin
+      (match !school_student_a_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ());
+      (match !school_student_b_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ());
+      (match !school_messenger_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ())
+    end
   end
   else begin
     if not !school_students_intro_started then begin
@@ -540,6 +712,8 @@ let update_school_intro_event () =
        if Scene.current () = Scene.Classroom then begin
          if (not global.lambda_duel_completed) || !aerin_exit_started then
            aerin#tag#set (InScene Scene.Classroom);
+         if global.lambda_duel_completed && not !aerin_exit_started then
+           aerin#tag#set (InScene Scene.Menu);
          if global.dialogue_state.active then
            match Dialogue.current_line global.dialogue_state with
            | Some line when String.equal line.Component_defs.speaker "Aerin" ->
@@ -547,6 +721,47 @@ let update_school_intro_event () =
            | _ -> ()
        end
    | None -> ());
+  (* New update for students exit and lambda return *)
+  if !students_exit_started then begin
+    match !students_exit_phase with
+    | 1 ->
+        let s1_done = move_npc_ref_to_target classroom_student_a_ref student_a_post_target 2.1 in
+        let s2_done = move_npc_ref_to_target classroom_student_b_ref student_b_post_target 2.0 in
+        let s3_done = move_npc_ref_to_target classroom_student_c_ref student_c_post_target 2.0 in
+        if s1_done then
+          (match !classroom_student_a_ref with
+           | Some npc -> npc#tag#set (InScene Scene.Menu)
+           | None -> ());
+        if s2_done then
+          (match !classroom_student_b_ref with
+           | Some npc -> npc#tag#set (InScene Scene.Menu)
+           | None -> ());
+        if s3_done then
+          (match !classroom_student_c_ref with
+           | Some npc -> npc#tag#set (InScene Scene.Menu)
+           | None -> ());
+        if s1_done && s2_done && s3_done then begin
+          students_exit_phase := 2;
+          lambda_return_started := true
+        end
+    | 2 ->
+        if !lambda_return_started then begin
+          let lambda_done = move_npc_ref_to_target professor_lambda_ref lambda_post_target 1.5 in
+          if lambda_done then begin
+            (match !professor_lambda_ref with
+             | Some lambda -> set_npc_sprite_row lambda sprite_row_down
+             | None -> ());
+            students_exit_started := false;
+            students_exit_phase := 0;
+            lambda_return_started := false;
+            student_a_post_target := None;
+            student_b_post_target := None;
+            student_c_post_target := None;
+            lambda_post_target := None
+          end
+        end
+    | _ -> ()
+  end;
   if Scene.current () <> Scene.Classroom then
     ()
   else if global.classroom_intro_completed && not !classroom_post_success_started then begin
@@ -840,6 +1055,17 @@ let update_knight_patrol () =
   | _ -> ()
 
 let update () =
+  let current_scene = Scene.current () in
+  (match !previous_scene with
+   | Some Scene.Classroom when current_scene <> Scene.Classroom ->
+       classroom_students_hidden_after_exit := true
+   | _ -> ());
+  previous_scene := Some current_scene;
+  if current_scene = Scene.Classroom && !classroom_students_hidden_after_exit then begin
+    (match !classroom_student_a_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ());
+    (match !classroom_student_b_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ());
+    (match !classroom_student_c_ref with Some npc -> npc#tag#set (InScene Scene.Menu) | None -> ())
+  end;
   update_knight_patrol ();
   update_town_npc_facing ();
   update_school_students_event ();

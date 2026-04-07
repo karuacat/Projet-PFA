@@ -4,6 +4,7 @@ type challenge_type =
   | PowerCalculation
   | GolemActivateHp
   | GolemDealDamage
+  | TypeExercise of int
   | TypeDefinition
 
 type failure_reason =
@@ -29,6 +30,10 @@ val add_char : state -> char -> unit
 
 val remove_char : state -> unit
 
+val move_cursor_left : state -> unit
+
+val move_cursor_right : state -> unit
+
 val validate_code : state -> bool
 
 val submit_code : state -> unit
@@ -40,3 +45,5 @@ val get_prompt : state -> string
 val get_last_failure_reason : state -> failure_reason option
 
 val extract_golem_damage : string -> int option
+
+val get_type_exercise_hint : state -> string option

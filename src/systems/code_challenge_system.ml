@@ -56,6 +56,38 @@ let draw_code_lines ctx surface font code x y line_height =
       lines
   end
 
+let draw_code_cursor ctx surface font code cursor_pos x y line_height =
+  let safe_pos = max 0 (min cursor_pos (String.length code)) in
+  let before = String.sub code 0 safe_pos in
+  let lines_before = String.split_on_char '\n' before in
+  let line_index = max 0 (List.length lines_before - 1) in
+  let current_line_prefix =
+    match List.rev lines_before with
+    | hd :: _ -> hd
+    | [] -> ""
+  in
+  let cursor_x_offset, _ = Gfx.measure_text current_line_prefix font in
+  let cursor_x = x + cursor_x_offset in
+  let cursor_y = y + (line_index * line_height) in
+  Gfx.set_color ctx (Gfx.color 220 240 255 255);
+  Gfx.fill_rect ctx surface cursor_x cursor_y 2 (line_height - 2)
+
+let draw_hint_box ctx surface font state code_x code_y code_w =
+  match Code_challenge.get_last_failure_reason state with
+  | None -> ()
+    | Some _ ->
+      (match Code_challenge.get_type_exercise_hint state with
+       | None -> ()
+       | Some hint ->
+         let hint_box_y = code_y + 140 in
+         let hint_box_h = 42 in
+         Gfx.set_color ctx (Gfx.color 38 46 66 255);
+         Gfx.fill_rect ctx surface (code_x + 14) hint_box_y (code_w - 28) hint_box_h;
+         Gfx.set_color ctx (Gfx.color 128 190 255 255);
+         Gfx.fill_rect ctx surface (code_x + 14) hint_box_y (code_w - 28) 2;
+         let hint_surf = Gfx.render_text ctx hint font in
+         Gfx.blit ctx surface hint_surf (code_x + 24) (hint_box_y + 12))
+
 let draw_single_aerin_frame ctx surface aerin_img dx dy dw dh =
   let sw, sh = Gfx.surface_size aerin_img in
   if sw >= 3 && sh >= 4 then begin
@@ -196,12 +228,14 @@ let draw_lambda_duel_battle_screen ctx surface font state =
 
   Gfx.set_color ctx (Gfx.color 120 255 130 255);
   draw_code_lines ctx surface font state.Code_challenge.code (input_x + 10) (input_y + 10) 20;
+  draw_code_cursor ctx surface font state.Code_challenge.code state.Code_challenge.cursor_pos (input_x + 10) (input_y + 10) 20;
 
   Gfx.set_color ctx (Gfx.color 190 190 198 255);
   let instr_surf =
     Gfx.render_text ctx "ENTREE: Valider | Ctrl+ENTREE: Nouvelle ligne" font
   in
-  Gfx.blit ctx surface instr_surf (code_x + 12) (code_y + code_h - 24)
+  Gfx.blit ctx surface instr_surf (code_x + 12) (code_y + code_h - 24);
+  draw_hint_box ctx surface font state code_x code_y code_w
 
 let draw_code_interface state =
   let global = Global.get () in
@@ -234,6 +268,7 @@ let draw_code_interface state =
     | Some Code_challenge.PowerCalculation -> "Defi magique : Calcul elementaire"
     | Some Code_challenge.GolemActivateHp
     | Some Code_challenge.GolemDealDamage -> "Duel magique : Golem d'entrainement"
+    | Some (Code_challenge.TypeExercise _) -> "Tutoriel : Les types"
     | _ -> "Epreuve de Magie"
   in
   let title_surf = Gfx.render_text ctx title font in
@@ -264,6 +299,7 @@ let draw_code_interface state =
   
     Gfx.set_color ctx (Gfx.color 100 255 100 255);
     draw_code_lines ctx surface font state.Code_challenge.code (input_x + 10) (input_y + 10) 20;
+    draw_code_cursor ctx surface font state.Code_challenge.code state.Code_challenge.cursor_pos (input_x + 10) (input_y + 10) 20;
   
   Gfx.set_color ctx (Gfx.color 150 150 150 255);
     let instr_surf = Gfx.render_text ctx "ENTREE: Valider | ECHAP: Annuler | Ctrl+ENTREE: Nouvelle ligne" font in

@@ -79,6 +79,25 @@ let school_walls () =
   done;
   List.rev !blockers
 
+let library_walls () =
+  let blockers = ref [] in
+  for r = 0 to Library_map.rows - 1 do
+    for c = 0 to Library_map.cols - 1 do
+      if Library_map.is_blocked c r then
+        blockers :=
+          wall
+            ( Library_map.cell_x c,
+              Library_map.cell_y r,
+              Library_map.cell_w,
+              Library_map.cell_h,
+              true,
+              Texture.transparent,
+              Scene.Library )
+          :: !blockers
+    done
+  done;
+  List.rev !blockers
+
 let classroom_walls () =
   let blockers = ref [] in
   List.iter

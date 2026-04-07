@@ -147,3 +147,13 @@ let secret_book_for_name player_name =
     { speaker = "Livre Ancien"; text = "Un string est une chaîne entre guillemets."; };
     { speaker = "Livre Ancien"; text = "Exemple: let nom = \"" ^ shown_name ^ "\";;"; };
   ]
+
+let dynamic_magic_professors = create_dialogue [
+  { speaker = "Professeur 1"; text = "As-tu entendu ?" };
+  { speaker = "Professeur 1"; text = "Quelqu'un tente de modifier le Compilateur Originel..." };
+  { speaker = "Professeur 2"; text = "Impossible. Sans typage... le monde s'effondrerait." };
+]
+
+let dynamic_magic_book = create_dialogue [
+  { speaker = "Livre"; text = "Magie dynamique." };
+]

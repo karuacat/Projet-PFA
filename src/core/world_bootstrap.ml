@@ -1,13 +1,17 @@
+open Ecs
 open Component_defs
+open System_defs
 
 let init_world ctx =
   let _house_walls = Wall.house_walls () in
   let _town_walls = Wall.town_walls () in
   let _school_walls = Wall.school_walls () in
+  let _library_walls = Wall.library_walls () in
   let _classroom_walls = Wall.classroom_walls () in
   let _house_doors = Door.house_doors () in
   let _town_doors = Door.town_doors () in
   let _school_doors = Door.school_doors () in
+  let _library_doors = Door.library_doors () in
 
   let knight_cx, knight_cy =
     match Town_map.find_marker 'G' with
@@ -268,4 +272,41 @@ let init_world ctx =
 
   let book_x, book_y = House_map.book_pos () in
   let _secret_book = Book.create_book book_x book_y Scene.House in
+  let lx, ly, lw, lh = Library_map.training_book_rect () in
+  let _training_book =
+    Sign.create_sign (lx + (lw / 2) - 12) (ly + (lh / 2) - 16)
+      {
+        title = "Livre d'entrainement";
+        text = "Un ancien manuel de types.";
+        scene = Scene.Library;
+      }
+      Scene.Library
+  in
+  _training_book#texture#set Texture.transparent;
+
+  let library_aerin_texture =
+    match Gfx.get_resource_opt aerin_sheet with
+    | Some img ->
+        Some (Texture.Sprite (img, 48, 48, 48, 48))
+    | None -> None
+  in
+  let ax, ay, aw, ah = Library_map.aerin_marker_rect () in
+  let library_aerin = object
+    inherit Entity.t ()
+    inherit position ()
+    inherit box ()
+    inherit texture ()
+    inherit tagged ()
+  end in
+  library_aerin#position#set Vector.{
+    x = float_of_int (ax + (aw / 2) - 14);
+    y = float_of_int (ay + (ah / 2) - 30);
+  };
+  library_aerin#box#set Rect.{ width = 44; height = 58 };
+  (match library_aerin_texture with
+   | Some txt -> library_aerin#texture#set txt
+   | None -> library_aerin#texture#set (Texture.Color (Gfx.color 255 0 255 255)));
+  library_aerin#tag#set (InScene Scene.Library);
+  Draw_system.(register (library_aerin :> Component_defs.drawable));
+
   _apprentice_chest#texture#set Texture.transparent

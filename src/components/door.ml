@@ -57,9 +57,11 @@ let town_doors () =
 let school_doors () =
   let town_door_x, town_door_y, town_door_w, town_door_h = School_map.town_door_rect () in
   let class_door_x, class_door_y, class_door_w, class_door_h = School_map.class_door_rect () in
+  let library_door_x, library_door_y, library_door_w, library_door_h = School_map.library_door_rect () in
   let school_door_x, school_door_y, school_door_w, school_door_h = Classroom_map.school_door_rect () in
   let classroom_spawn_x, classroom_spawn_y = Classroom_map.spawn_from_school () in
   let school_spawn_x, school_spawn_y = School_map.spawn_from_classroom () in
+  let library_spawn_x, library_spawn_y = Library_map.spawn_from_school () in
   [
     door ({
       id = "school_town_door";
@@ -76,8 +78,28 @@ let school_doors () =
       player_spawn_y = classroom_spawn_y;
     }, class_door_x, class_door_y, class_door_w, class_door_h, Texture.transparent);
     door ({
+      id = "school_library_door";
+      current_scene = Scene.School;
+      target_scene = Scene.Library;
+      player_spawn_x = library_spawn_x;
+      player_spawn_y = library_spawn_y;
+    }, library_door_x, library_door_y, library_door_w, library_door_h, Texture.transparent);
+    door ({
       id = "classroom_school_door";
       current_scene = Scene.Classroom;
+      target_scene = Scene.School;
+      player_spawn_x = school_spawn_x;
+      player_spawn_y = school_spawn_y;
+    }, school_door_x, school_door_y, school_door_w, school_door_h, Texture.transparent)
+  ]
+
+let library_doors () =
+  let school_door_x, school_door_y, school_door_w, school_door_h = Library_map.school_door_rect () in
+  let school_spawn_x, school_spawn_y = School_map.spawn_from_library () in
+  [
+    door ({
+      id = "library_school_door";
+      current_scene = Scene.Library;
       target_scene = Scene.School;
       player_spawn_x = school_spawn_x;
       player_spawn_y = school_spawn_y;

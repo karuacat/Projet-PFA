@@ -25,6 +25,15 @@ type t = {
     mutable lambda_golem_hp : int;
     mutable lambda_golem_hp_visible : bool;
     mutable lambda_duel_completed : bool;
+    mutable dynamic_magic_cinematic_done : bool;
+    mutable dynamic_magic_cinematic_active : bool;
+    mutable dynamic_magic_phase : int;
+    mutable dynamic_magic_timer : float;
+    mutable dynamic_magic_pending_target_scene : Scene.scene option;
+    mutable dynamic_magic_spawn_x : int;
+    mutable dynamic_magic_spawn_y : int;
+    library_guide_state : Library_guide.state;
+    mutable library_intro_seen : bool;
 }
 
 val get : unit -> t

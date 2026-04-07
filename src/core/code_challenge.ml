@@ -4,6 +4,7 @@ type challenge_type =
   | PowerCalculation
   | GolemActivateHp
   | GolemDealDamage
+  | TypeExercise of int
   | TypeDefinition
 
 type failure_reason =
@@ -55,6 +56,14 @@ let remove_char state =
     state.code <- before ^ after;
     state.cursor_pos <- state.cursor_pos - 1
   end
+
+let move_cursor_left state =
+  if state.active && state.cursor_pos > 0 then
+    state.cursor_pos <- state.cursor_pos - 1
+
+let move_cursor_right state =
+  if state.active && state.cursor_pos < String.length state.code then
+    state.cursor_pos <- state.cursor_pos + 1
 
 let validate_bool_variable code expected_name expected_value =
   let trimmed = String.trim code in
@@ -111,6 +120,36 @@ let validate_power_calculation code =
   else
     false
 
+let validate_type_exercise index code =
+  let trimmed = String.trim code in
+  match index with
+  | 1 ->
+      Str.string_match
+        (Str.regexp "^let[ \t]+niveau[ \t]*=[ \t]*1[ \t]*;;?$")
+        trimmed 0
+  | 2 ->
+      Str.string_match
+        (Str.regexp "^let[ \t]+est_pret[ \t]*=[ \t]*true[ \t]*;;?$")
+        trimmed 0
+  | _ ->
+      let pattern =
+        Str.regexp "^let[ \t]+salle[ \t]*=[ \t]*\"\\([^\"]+\\)\"[ \t]*;;?$"
+      in
+      if Str.string_match pattern trimmed 0 then
+        let value = String.lowercase_ascii (Str.matched_group 1 trimmed) in
+        String.equal value "bibliotheque"
+      else
+        false
+
+let type_exercise_hint index =
+  match index with
+  | 1 ->
+    "Indice : le nom attendu est niveau. int sert pour un nombre sans guillemets."
+  | 2 ->
+    "Indice : le nom attendu est est_pret. bool sert pour vrai/faux sans guillemets."
+  | _ ->
+    "Indice : le nom attendu est salle. Ecris un texte entre guillemets, par ex. \"Bibliotheque\"."
+
 let validate_golem_activate_hp code =
   let trimmed = String.trim code in
   let pattern =
@@ -163,6 +202,8 @@ let validate_code state =
       validate_golem_activate_hp state.code
     | Some GolemDealDamage ->
       validate_golem_deal_damage state.code
+  | Some (TypeExercise idx) ->
+      validate_type_exercise idx state.code
   | Some TypeDefinition ->
       validate_type_definition state.code
 
@@ -208,6 +249,17 @@ let get_prompt state =
       "Active les points de vie du golem: let pv = true;;"
     | Some GolemDealDamage ->
         "Inflige des degats au golem: let degats = <valeur>;;"
+    | Some (TypeExercise 1) ->
+      "Enigme 1: Tu commences ton aventure a la premiere marche du parcours. Donne cette valeur a niveau."
+    | Some (TypeExercise 2) ->
+      "Enigme 2: Tu es devant le livre, pret a etudier. Traduis cet etat dans la variable est_pret."
+    | Some (TypeExercise _) ->
+      "Enigme 3: Associer a la variable salle le nom de la salle dans laquelle tu es."
   | Some TypeDefinition -> "Définis un type eleve avec ses propriétés:"
 
 let get_last_failure_reason state = state.last_failure_reason
+
+let get_type_exercise_hint state =
+  match state.challenge with
+  | Some (TypeExercise idx) -> Some (type_exercise_hint idx)
+  | _ -> None

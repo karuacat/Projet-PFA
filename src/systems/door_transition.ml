@@ -45,12 +45,31 @@ let check_door_collision doors =
                   global.chest_challenge_completed
                 else if door_config.id = "town_school_door" then
                   global.knight_challenge_completed
+                else if door_config.id = "school_library_door" then
+                  global.lambda_duel_completed
+                else if door_config.id = "library_school_door" then
+                  Library_guide.training_progress global.library_guide_state > 0
+                  && global.dynamic_magic_cinematic_done
+                  && not global.dynamic_magic_cinematic_active
                 else
                   true
               in
               
               if Rect.collides player_rect door_rect then (
-                if can_pass then (
+                if door_config.id = "library_school_door"
+                   && Library_guide.training_progress global.library_guide_state > 0
+                   && not global.dynamic_magic_cinematic_done
+                   && not global.dynamic_magic_cinematic_active
+                then (
+                  global.dynamic_magic_cinematic_active <- true;
+                  global.dynamic_magic_phase <- 0;
+                  global.dynamic_magic_timer <- 0.0;
+                  global.dynamic_magic_pending_target_scene <- Some door_config.target_scene;
+                  global.dynamic_magic_spawn_x <- door_config.player_spawn_x;
+                  global.dynamic_magic_spawn_y <- door_config.player_spawn_y;
+                  if not dialogue_state.active then
+                    Dialogue.start_dialogue dialogue_state Dialogue.dynamic_magic_professors
+                ) else if can_pass then (
                   Scene.set_scene door_config.target_scene;
                   player#position#set Vector.{
                     x = float door_config.player_spawn_x;
@@ -68,6 +87,24 @@ let check_door_collision doors =
                     if not dialogue_state.active then
                       Dialogue.start_dialogue dialogue_state Dialogue.house_exit_blocked
                   )
+                ) else if door_config.id = "school_library_door" then (
+                  if not dialogue_state.active then
+                    Dialogue.start_dialogue dialogue_state
+                      (Dialogue.create_dialogue [
+                        {
+                          Component_defs.speaker = "Moi";
+                          text = "Le cours n'est pas encore fini... je dois d'abord le terminer.";
+                        };
+                      ])
+                ) else if door_config.id = "library_school_door" then (
+                  if not dialogue_state.active then
+                    Dialogue.start_dialogue dialogue_state
+                      (Dialogue.create_dialogue [
+                        {
+                          Component_defs.speaker = "Moi";
+                          text = "Je dois finir au moins un entrainement avant de sortir.";
+                        };
+                      ])
                 )
               )
             )
