@@ -1,0 +1,9 @@
+(test
+ (name test_game)
+ (libraries game gfx_sdl tsdl tsdl-image tsdl-ttf)
+)
+
+(test
+ (name test_cinematics)
+ (libraries game gfx_sdl tsdl tsdl-image tsdl-ttf)
+)
