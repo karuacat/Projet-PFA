@@ -16,6 +16,13 @@ let register key action = Hashtbl.replace action_table key action
 
 let global_cache : Global.t option ref = ref None
 let player_cache : Component_defs.player option ref = ref None
+let knight_challenge_seen = ref false
+let knight_challenge_pending = ref false
+let chest_challenge_pending = ref false
+let lambda_duel_autowalk_active = ref false
+let lambda_duel_target : (float * float) option ref = ref None
+let lambda_duel_pending_challenge : Code_challenge.state option ref = ref None
+let golem_damage_retry_pending = ref false
 
 let get_global_cached () =
   match !global_cache with
@@ -38,6 +45,15 @@ let invalidate_caches () =
   player_cache := None;
   Hashtbl.clear key_table;
   Hashtbl.clear key_pressed_table
+
+let reset_interaction_state () =
+  knight_challenge_seen := false;
+  knight_challenge_pending := false;
+  chest_challenge_pending := false;
+  lambda_duel_autowalk_active := false;
+  lambda_duel_target := None;
+  lambda_duel_pending_challenge := None;
+  golem_damage_retry_pending := false
 
 let distance_sq v1 v2 =
   let dx = Vector.sub v1 v2 in
@@ -103,60 +119,157 @@ let convert_mouse_coords x y =
   let scale_y = float_of_int logical_height /. float_of_int window_height in
   (int_of_float (float_of_int x *. scale_x), int_of_float (float_of_int y *. scale_y))
 
-let move_player_to_classroom_marker_j_and_face_up (global : Global.t) =
-  let j_target =
-    match Classroom_map.marker_cells 'J' with
-    | (col, row) :: _ ->
-        let cx, cy = Classroom_map.cell_center col row in
-        (float_of_int (cx - (Cst.player_width / 2)), float_of_int (cy - Cst.player_height + 2))
-    | [] ->
-        let cx, cy = Classroom_map.cell_center 3 11 in
-        (float_of_int (cx - (Cst.player_width / 2)), float_of_int (cy - Cst.player_height + 2))
-  in
-  let x, y = j_target in
-  global.player#position#set Vector.{x; y};
-  Player.move_player global.player Vector.{x = 0.0; y = -.0.1};
-  global.player#velocity#set Vector.zero
+let classroom_duel_marker_j_target () =
+  match Classroom_map.marker_cells 'J' with
+  | (col, row) :: _ ->
+      let cx, cy = Classroom_map.cell_center col row in
+      (float_of_int (cx - (Cst.player_width / 2)), float_of_int (cy - Cst.player_height + 2))
+  | [] ->
+      let cx, cy = Classroom_map.cell_center 3 11 in
+      (float_of_int (cx - (Cst.player_width / 2)), float_of_int (cy - Cst.player_height + 2))
 
-let start_lambda_duel (global : Global.t) challenge_state =
-  let rec start_damage_challenge () =
-    let on_success () =
+let start_golem_activate_challenge (global : Global.t) challenge_state =
+  let on_success () =
+    global.lambda_duel_stage <- 2;
+    global.lambda_golem_hp_visible <- true;
+    let on_success_damage () =
       let dealt =
         match Code_challenge.extract_golem_damage challenge_state.Code_challenge.code with
         | Some value -> value
         | None -> 0
       in
-      let remaining = max 0 (global.lambda_golem_hp - dealt) in
-      global.lambda_golem_hp <- remaining;
-      global.lambda_golem_hp_visible <- true;
-      if remaining > 0 then begin
-        start_damage_challenge ()
+      let remaining_before = max 0 global.lambda_golem_hp in
+      if dealt > remaining_before then begin
+        golem_damage_retry_pending := true;
+        Dialogue.start_dialogue global.dialogue_state
+          (Dialogue.create_dialogue [
+             {
+               Component_defs.speaker = "Professeur Lambda";
+               text = "Tu dois apprendre a canaliser ta puissance. Ajuste tes degats au strict necessaire.";
+             };
+           ])
+      end else if dealt < remaining_before then begin
+        golem_damage_retry_pending := true;
+        Dialogue.start_dialogue global.dialogue_state
+          (Dialogue.create_dialogue [
+             {
+               Component_defs.speaker = "Professeur Lambda";
+               text = "Tu dois mieux estimer la puissance de ton attaque. Vise exactement les PV restants.";
+             };
+           ])
       end else begin
-        global.lambda_duel_completed <- true;
-        global.lambda_duel_stage <- 0;
         global.lambda_golem_hp <- 0;
         global.lambda_golem_hp_visible <- false;
+        global.lambda_duel_completed <- true;
+        global.lambda_duel_stage <- 0;
         Story_events_system.start_aerin_exit_sequence ()
       end
     in
-    let on_failure () = () in
+    let on_failure_damage () =
+      Dialogue.start_dialogue global.dialogue_state
+        (Dialogue.create_dialogue [
+           {
+             Component_defs.speaker = "Professeur Lambda";
+             text = "Formule ton sort ainsi : let degats = <nombre>;;";
+           };
+         ])
+    in
     Code_challenge.start_challenge challenge_state
-      Code_challenge.GolemDealDamage on_success on_failure
+      Code_challenge.GolemDealDamage on_success_damage on_failure_damage
   in
+  let on_failure () =
+    Dialogue.start_dialogue global.dialogue_state
+      (Dialogue.create_dialogue [
+         {
+           Component_defs.speaker = "Professeur Lambda";
+           text = "Indice : active d'abord le golem avec exactement : let pv = true;;";
+         };
+       ])
+  in
+  Code_challenge.start_challenge challenge_state
+    Code_challenge.GolemActivateHp on_success on_failure
+
+let update_lambda_duel_autowalk () =
+  if !lambda_duel_autowalk_active then begin
+    let global = get_global_cached () in
+    if Scene.current () <> Scene.Classroom || global.menu_state <> None then begin
+      lambda_duel_autowalk_active := false;
+      lambda_duel_target := None;
+      lambda_duel_pending_challenge := None
+    end else if not global.dialogue_state.active then begin
+      match !lambda_duel_target, !lambda_duel_pending_challenge with
+      | Some (tx, ty), Some challenge_state ->
+          let pos = global.player#position#get in
+          let dx = tx -. pos.Vector.x in
+          let dy = ty -. pos.Vector.y in
+          let dist = sqrt ((dx *. dx) +. (dy *. dy)) in
+          let speed = 2.1 in
+          if dist <= speed || dist = 0.0 then begin
+            global.player#position#set Vector.{x = tx; y = ty};
+            Player.move_player global.player Vector.{x = 0.0; y = -.0.1};
+            global.player#velocity#set Vector.zero;
+            lambda_duel_autowalk_active := false;
+            lambda_duel_target := None;
+            lambda_duel_pending_challenge := None;
+            start_golem_activate_challenge global challenge_state
+          end else begin
+            let vx = dx /. dist *. speed in
+            let vy = dy /. dist *. speed in
+            Player.move_player global.player Vector.{x = vx; y = vy};
+            global.player#position#set Vector.{x = pos.Vector.x +. vx; y = pos.Vector.y +. vy};
+            global.player#velocity#set Vector.zero
+          end
+      | _ ->
+          lambda_duel_autowalk_active := false;
+          lambda_duel_target := None;
+          lambda_duel_pending_challenge := None
+    end
+  end
+
+let start_lambda_duel (global : Global.t) challenge_state =
   global.lambda_duel_started <- true;
   global.lambda_duel_completed <- false;
+  global.lambda_library_instruction_seen <- false;
   global.lambda_duel_stage <- 1;
   global.lambda_golem_hp <- 20;
   global.lambda_golem_hp_visible <- false;
-  move_player_to_classroom_marker_j_and_face_up global;
-  let on_success () =
-    global.lambda_duel_stage <- 2;
-    global.lambda_golem_hp_visible <- true;
-    start_damage_challenge ()
+  golem_damage_retry_pending := false;
+  lambda_duel_autowalk_active := true;
+  lambda_duel_target := Some (classroom_duel_marker_j_target ());
+  lambda_duel_pending_challenge := Some challenge_state;
+  Dialogue.start_dialogue global.dialogue_state
+    (Dialogue.create_dialogue [
+       {
+         Component_defs.speaker = "Professeur Lambda";
+         text = "Place-toi au centre. Le duel commence des que tu es en position.";
+       };
+     ])
+
+let start_knight_challenge (global : Global.t) challenge_state =
+  let expected_name =
+    if String.length global.player_name > 0 then global.player_name
+    else "Apprenti"
   in
-  let on_failure () = () in
+  let on_success () =
+    global.knight_challenge_completed <- true;
+    Dialogue.start_dialogue global.dialogue_state Dialogue.knight_guardian_admission_success
+  in
+  let on_failure () =
+    Dialogue.start_dialogue global.dialogue_state Dialogue.knight_guardian_failure
+  in
   Code_challenge.start_challenge challenge_state
-    Code_challenge.GolemActivateHp on_success on_failure
+    (Code_challenge.StringVariable ("nom", expected_name)) on_success on_failure
+
+let start_chest_challenge (global : Global.t) challenge_state =
+  let on_success () =
+    global.chest_challenge_completed <- true;
+    Dialogue.start_dialogue global.dialogue_state Dialogue.chest_success
+  in
+  let on_failure () =
+    Dialogue.start_dialogue global.dialogue_state Dialogue.chest_failure
+  in
+  Code_challenge.start_challenge challenge_state
+    (Code_challenge.BoolVariable ("cles", true)) on_success on_failure
 
 let handle_interaction () =
   let global = get_global_cached () in
@@ -168,9 +281,7 @@ let handle_interaction () =
 
   if global.dynamic_magic_cinematic_active && not dialogue_state.active then
     ()
-  else
-
-  if dialogue_state.active then begin
+  else if dialogue_state.active then begin
     let was_finished = Dialogue.is_finished dialogue_state in
     let finished_line =
       if was_finished then Dialogue.current_line dialogue_state
@@ -185,6 +296,70 @@ let handle_interaction () =
         Tutorial.complete_message tutorial_state "interact";
         Tutorial.show_message tutorial_state "town_explore"
       end;
+      if !knight_challenge_pending then begin
+        knight_challenge_pending := false;
+        match global.code_challenge_state with
+        | Some challenge_state when not challenge_state.Code_challenge.active ->
+            start_knight_challenge global challenge_state
+        | _ -> ()
+      end;
+      if !chest_challenge_pending then begin
+        chest_challenge_pending := false;
+        match global.code_challenge_state with
+        | Some challenge_state when not challenge_state.Code_challenge.active ->
+            start_chest_challenge global challenge_state
+        | _ -> ()
+      end;
+      if !golem_damage_retry_pending then begin
+        golem_damage_retry_pending := false;
+        match global.code_challenge_state with
+        | Some challenge_state when not challenge_state.Code_challenge.active ->
+            let on_success_damage () =
+              let dealt =
+                match Code_challenge.extract_golem_damage challenge_state.Code_challenge.code with
+                | Some value -> value
+                | None -> 0
+              in
+              let remaining_before = max 0 global.lambda_golem_hp in
+              if dealt > remaining_before then begin
+                golem_damage_retry_pending := true;
+                Dialogue.start_dialogue global.dialogue_state
+                  (Dialogue.create_dialogue [
+                     {
+                       Component_defs.speaker = "Professeur Lambda";
+                       text = "Tu dois apprendre a canaliser ta puissance. Ajuste tes degats au strict necessaire.";
+                     };
+                   ])
+              end else if dealt < remaining_before then begin
+                golem_damage_retry_pending := true;
+                Dialogue.start_dialogue global.dialogue_state
+                  (Dialogue.create_dialogue [
+                     {
+                       Component_defs.speaker = "Professeur Lambda";
+                       text = "Tu dois mieux estimer la puissance de ton attaque. Vise exactement les PV restants.";
+                     };
+                   ])
+              end else begin
+                global.lambda_golem_hp <- 0;
+                global.lambda_golem_hp_visible <- false;
+                global.lambda_duel_completed <- true;
+                global.lambda_duel_stage <- 0;
+                Story_events_system.start_aerin_exit_sequence ()
+              end
+            in
+            let on_failure_damage () =
+              Dialogue.start_dialogue global.dialogue_state
+                (Dialogue.create_dialogue [
+                   {
+                     Component_defs.speaker = "Professeur Lambda";
+                     text = "Formule ton sort ainsi : let degats = <nombre>;;";
+                   };
+                 ])
+            in
+            Code_challenge.start_challenge challenge_state
+              Code_challenge.GolemDealDamage on_success_damage on_failure_damage
+        | _ -> ()
+      end;
       (match finished_line with
        | Some line
          when current_scene = Scene.Classroom
@@ -193,83 +368,100 @@ let handle_interaction () =
            Tutorial.show_message tutorial_state "find_library"
        | _ -> ())
     end
-  end
-  else match Interaction.find_npc_at player_pos player_box with
-  | Some npc ->
-      let data = npc#npc_data#get in
-      if data.Component_defs.name = "Professeur Lambda"
-         && Scene.current () = Scene.Classroom
-         && global.classroom_intro_completed
-         && not global.lambda_duel_completed then begin
-        (match global.code_challenge_state with
-         | Some challenge_state when not challenge_state.Code_challenge.active ->
-             start_lambda_duel global challenge_state
-         | _ -> ())
-      end else begin
-        turn_npc_toward_player npc player_pos;
-        let dialogue_to_show =
-          if data.Component_defs.name = "Professeur Lambda"
-             && Scene.current () = Scene.Classroom
-             && global.lambda_duel_completed then
-            Dialogue.create_dialogue [
-              { Component_defs.speaker = "Professeur Lambda"; text = "Si tu veux progresser..." };
-              { Component_defs.speaker = "Professeur Lambda"; text = "Va a la bibliotheque." };
-              {
-                Component_defs.speaker = "Professeur Lambda";
-                text = "Les vrais mages lisent autant qu'ils ecrivent.";
-              };
-            ]
-          else if data.Component_defs.name = "Chevalier Gardien" && global.knight_challenge_completed then
-            Dialogue.knight_guardian_post_victory
-          else
-            data.Component_defs.dialogue
-        in
-        Dialogue.start_dialogue dialogue_state dialogue_to_show;
-        Tutorial.complete_message tutorial_state "interact";
-        let current_scene = Scene.current () in
-        if current_scene = Scene.Town then
-          Tutorial.complete_message tutorial_state "town_explore"
-      end
-  | None ->
-      match Interaction.find_sign_at player_pos player_box with
-      | Some sign ->
-          let data = sign#sign_data#get in
+  end else begin
+    match Interaction.find_npc_at player_pos player_box with
+    | Some npc ->
+        let data = npc#npc_data#get in
+        if data.Component_defs.name = "Professeur Lambda"
+           && Scene.current () = Scene.Classroom
+           && global.classroom_intro_completed
+           && not global.lambda_duel_completed then begin
+          match global.code_challenge_state with
+          | Some challenge_state when not challenge_state.Code_challenge.active ->
+              start_lambda_duel global challenge_state
+          | _ -> ()
+        end else if data.Component_defs.name = "Chevalier Gardien"
+                  && Scene.current () = Scene.Town
+                  && not global.knight_challenge_completed then begin
           let dialogue_to_show =
-            if data.title = "Livre d'entrainement" && Scene.current () = Scene.Library then (
-              Library_guide.open_panel global.library_guide_state;
-              Tutorial.complete_message tutorial_state "find_library";
-              None
-            )
-            else if data.title = "Coffre de l'Apprenti" && not global.house_exit_attempted then
-              None
-            else if data.title = "Livre Ancien" then
-              if not global.has_secret_book then (
-                global.has_secret_book <- true;
-                Some (Dialogue.create_dialogue [
-                  { Component_defs.speaker = "Moi"; text = "Je récupère le livre ancien." };
-                  { Component_defs.speaker = "Moi"; text = "Je peux l'utiliser avec E." };
-                ])
-              ) else
-                Some (Dialogue.create_dialogue [
-                  { Component_defs.speaker = "Moi"; text = "J'ai déjà récupéré ce livre." };
-                ])
-            else if data.title = "Coffre de l'Apprenti" then
-              if global.chest_challenge_completed then Some Dialogue.chest_post_victory else Some Dialogue.chest_intro
+            if !knight_challenge_seen then
+              Dialogue.create_dialogue [
+                { Component_defs.speaker = "Chevalier Gardien"; text = "Tu es prêt ?" };
+              ]
             else
-              Some (Dialogue.create_dialogue [
-                { Component_defs.speaker = data.title; text = data.text }
-              ])
+              Dialogue.knight_guardian_intro
           in
-          (match dialogue_to_show with
-           | Some dlg ->
-               Dialogue.start_dialogue dialogue_state dlg;
-               Tutorial.complete_message tutorial_state "interact";
-               let current_scene = Scene.current () in
-               if current_scene = Scene.Town then
-                 Tutorial.complete_message tutorial_state "town_signs"
-           | None -> ())
-      | None ->
-          ()
+          knight_challenge_seen := true;
+          knight_challenge_pending := true;
+          Dialogue.start_dialogue dialogue_state dialogue_to_show
+        end else begin
+          turn_npc_toward_player npc player_pos;
+          let dialogue_to_show =
+            if data.Component_defs.name = "Professeur Lambda"
+               && Scene.current () = Scene.Classroom
+               && global.lambda_duel_completed then
+              (global.lambda_library_instruction_seen <- true;
+              Dialogue.create_dialogue [
+                { Component_defs.speaker = "Professeur Lambda"; text = "Si tu veux progresser..." };
+                { Component_defs.speaker = "Professeur Lambda"; text = "Va a la bibliotheque." };
+                {
+                  Component_defs.speaker = "Professeur Lambda";
+                  text = "Les vrais mages lisent autant qu'ils ecrivent.";
+                };
+              ])
+            else if data.Component_defs.name = "Chevalier Gardien" && global.knight_challenge_completed then
+              Dialogue.knight_guardian_post_victory
+            else
+              data.Component_defs.dialogue
+          in
+          Dialogue.start_dialogue dialogue_state dialogue_to_show;
+          Tutorial.complete_message tutorial_state "interact";
+          let current_scene = Scene.current () in
+          if current_scene = Scene.Town then
+            Tutorial.complete_message tutorial_state "town_explore"
+        end
+    | None ->
+        match Interaction.find_sign_at player_pos player_box with
+        | Some sign ->
+            let data = sign#sign_data#get in
+            let dialogue_to_show =
+              if data.title = "Livre d'entrainement" && Scene.current () = Scene.Library then (
+                Library_guide.open_panel global.library_guide_state;
+                Tutorial.complete_message tutorial_state "find_library";
+                None
+              )
+              else if data.title = "Coffre de l'Apprenti" && not global.house_exit_attempted then
+                None
+              else if data.title = "Livre Ancien" then
+                if not global.has_secret_book then (
+                  global.has_secret_book <- true;
+                  Some (Dialogue.create_dialogue [
+                    { Component_defs.speaker = "Moi"; text = "Je récupère le livre ancien." };
+                    { Component_defs.speaker = "Moi"; text = "Je peux l'utiliser avec E." };
+                  ])
+                ) else
+                  Some (Dialogue.create_dialogue [
+                    { Component_defs.speaker = "Moi"; text = "J'ai déjà récupéré ce livre." };
+                  ])
+              else if data.title = "Coffre de l'Apprenti" then
+                if global.chest_challenge_completed then Some Dialogue.chest_post_victory else Some Dialogue.chest_intro
+              else
+                Some (Dialogue.create_dialogue [
+                  { Component_defs.speaker = data.title; text = data.text }
+                ])
+            in
+            (match dialogue_to_show with
+             | Some dlg ->
+                 Dialogue.start_dialogue dialogue_state dlg;
+                 Tutorial.complete_message tutorial_state "interact";
+                 let current_scene = Scene.current () in
+                 if current_scene = Scene.Town then
+                   Tutorial.complete_message tutorial_state "town_signs";
+                 if data.title = "Coffre de l'Apprenti" && not global.chest_challenge_completed then
+                   chest_challenge_pending := true
+             | None -> ())
+        | None -> ()
+  end
 
 let is_backspace_key s =
   let lower = String.lowercase_ascii s in
@@ -373,8 +565,13 @@ let is_classroom_entry_cinematic_active (global : Global.t) =
   Scene.current () = Scene.Classroom && not global.classroom_intro_completed
 
 let can_move_player (global : Global.t) =
+  let post_duel_sequence_active =
+    Scene.current () = Scene.Classroom && Story_events_system.is_post_duel_sequence_active ()
+  in
   not (is_school_students_cinematic_active global)
   && not (is_classroom_entry_cinematic_active global)
+  && not !lambda_duel_autowalk_active
+  && not post_duel_sequence_active
   && not global.dynamic_magic_cinematic_active
   && not global.library_guide_state.active
 
@@ -385,7 +582,9 @@ let is_shift_pressed () =
 let rec handle_input () =
   let () =
     match Gfx.poll_event () with
-      KeyDown s -> 
+    | NoEvent -> ()
+    | Quit -> exit 0
+    | KeyDown s -> 
         if not (has_key s) then
           Hashtbl.replace key_pressed_table s ();
         set_key s;
@@ -470,64 +669,6 @@ let rec handle_input () =
                end
              )
          | _ -> ());
-        (if String.equal (String.lowercase_ascii s) "c"
-          && not global.dialogue_state.active
-          && not global.library_guide_state.active then
-          let player = get_player_cached () in
-          let player_pos = player#position#get in
-          let player_box = player#box#get in
-          match Interaction.find_npc_at player_pos player_box with
-          | Some npc ->
-              let data = npc#npc_data#get in
-              if data.Component_defs.name = "Chevalier Gardien" then begin
-                match global.code_challenge_state with
-                | Some challenge_state when not challenge_state.Code_challenge.active ->
-                    let expected_name =
-                      if String.length global.player_name > 0 then global.player_name
-                      else "Apprenti"
-                    in
-                    let on_success () =
-                      global.knight_challenge_completed <- true;
-                      Dialogue.start_dialogue global.dialogue_state Dialogue.knight_guardian_admission_success
-                    in
-                    let on_failure () =
-                      Dialogue.start_dialogue global.dialogue_state Dialogue.knight_guardian_failure
-                    in
-                    Code_challenge.start_challenge challenge_state 
-                      (Code_challenge.StringVariable ("nom", expected_name)) on_success on_failure
-                | _ -> ()
-              end else if data.Component_defs.name = "Professeur Lambda" then begin
-                match global.code_challenge_state with
-                | Some challenge_state when not challenge_state.Code_challenge.active ->
-                    if Scene.current () = Scene.Classroom
-                       && global.classroom_intro_completed
-                       && not global.lambda_duel_completed
-                    then
-                      start_lambda_duel global challenge_state
-                    else
-                      ()
-                | _ -> ()
-              end
-          | None ->
-              (match Interaction.find_sign_at player_pos player_box with
-               | Some sign ->
-                   let data = sign#sign_data#get in
-                   if data.Component_defs.title = "Coffre de l'Apprenti" && global.house_exit_attempted then begin
-                     match global.code_challenge_state with
-                     | Some challenge_state when not challenge_state.Code_challenge.active ->
-                         let on_success () =
-                           global.chest_challenge_completed <- true;
-                           Dialogue.start_dialogue global.dialogue_state Dialogue.chest_success
-                         in
-                         let on_failure () =
-                           Dialogue.start_dialogue global.dialogue_state Dialogue.chest_failure
-                         in
-                         Code_challenge.start_challenge challenge_state
-                           (Code_challenge.BoolVariable ("cles", true)) on_success on_failure
-                     | _ -> ()
-                   end
-               | None -> ())
-        );
         handle_input ()
     | KeyUp s -> 
         unset_key s;
@@ -541,7 +682,7 @@ let rec handle_input () =
              Menu.update_hover menu
          | None -> ());
         handle_input ()
-    | MouseButton (_, pressed, x, y) -> 
+    | MouseButton (_, pressed, x, y) ->
         if pressed then begin
           let global = get_global_cached () in
           let x', y' = convert_mouse_coords x y in
@@ -556,62 +697,62 @@ let rec handle_input () =
             match Library_guide.click global.library_guide_state x' y' with
             | Library_guide.Start_training -> start_library_training global
             | _ -> ()
-          end else match global.menu_state with
-          | Some menu ->
-              Menu.set_mouse_position menu x' y';
-              Menu.update_hover menu;
-              Menu.click_button menu
-          | None ->
-              (match global.character_creation_state with
-               | Some char_state ->
-                 let card_y = 150 in
-                 let card_width = 200 in
-                 let card_height = 140 in
-                 let male_x = 130 in
-                 let female_x = Cst.window_width - male_x - card_width in
-                   
-                 if x' >= male_x && x' <= male_x + card_width && 
-                   y' >= card_y && y' <= card_y + card_height then
-                     Character_creation.set_gender char_state Character_creation.Male
-                 else if x' >= female_x && x' <= female_x + card_width &&
-                      y' >= card_y && y' <= card_y + card_height then
-                     Character_creation.set_gender char_state Character_creation.Female
-                   else if Character_creation.is_complete char_state then begin
-                     let button_width = 200 in
-                     let input_y = 370 in
-                     let continue_button_y = input_y + 100 in
-                     let button_x = (Cst.window_width - button_width) / 2 in
-                     if x' >= button_x && x' <= button_x + button_width &&
-                        y' >= continue_button_y && y' <= continue_button_y + 60 then
-                       (match global.on_character_complete with
-                        | Some callback -> callback ()
-                        | None -> ())
-                   end
-                   else begin
-                     let input_x = (Cst.window_width - 420) / 2 in
-                     let input_y = 370 in
-                     let input_width = 420 in
-                     let input_height = 60 in
-                     let focused = 
-                       x' >= input_x && x' <= input_x + input_width &&
-                       y' >= input_y && y' <= input_y + input_height
-                     in
-                     Character_creation.set_input_focused char_state focused
-                   end
-               | None -> ())
+          end else
+            match global.menu_state with
+            | Some menu ->
+                Menu.set_mouse_position menu x' y';
+                Menu.update_hover menu;
+                Menu.click_button menu
+            | None ->
+                (match global.character_creation_state with
+                 | Some char_state ->
+                     let card_y = 150 in
+                     let card_width = 200 in
+                     let card_height = 140 in
+                     let male_x = 130 in
+                     let female_x = Cst.window_width - male_x - card_width in
+                     if x' >= male_x && x' <= male_x + card_width &&
+                        y' >= card_y && y' <= card_y + card_height then
+                       Character_creation.set_gender char_state Character_creation.Male
+                     else if x' >= female_x && x' <= female_x + card_width &&
+                             y' >= card_y && y' <= card_y + card_height then
+                       Character_creation.set_gender char_state Character_creation.Female
+                     else if Character_creation.is_complete char_state then begin
+                       let input_y = 370 in
+                       let continue_button_y = input_y + 100 in
+                       let button_x = (Cst.window_width - 200) / 2 in
+                       if x' >= button_x && x' <= button_x + 200 &&
+                          y' >= continue_button_y && y' <= continue_button_y + 60 then
+                         (match global.on_character_complete with
+                          | Some callback -> callback ()
+                          | None -> ())
+                     end
+                     else begin
+                       let input_x = (Cst.window_width - 420) / 2 in
+                       let input_y = 370 in
+                       let input_width = 420 in
+                       let input_height = 60 in
+                       let focused =
+                         x' >= input_x && x' <= input_x + input_width &&
+                         y' >= input_y && y' <= input_y + input_height
+                       in
+                       Character_creation.set_input_focused char_state focused
+                     end
+                 | None -> ())
         end;
         handle_input ()
-    | Quit -> exit 0
-    | _ -> ()
+
+  
   in
+  update_lambda_duel_autowalk ();
   Hashtbl.iter (fun key action ->
     if has_key key then action ()) action_table
 
 let () =
-  register "z" (fun () -> 
+  register "z" (fun () ->
     let player = get_player_cached () in
     let global = get_global_cached () in
-    let is_typing = 
+    let is_typing =
       (match global.character_creation_state with
        | Some char_state -> char_state.input_focused
        | None -> false)
@@ -622,16 +763,16 @@ let () =
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_up;
-      Tutorial.complete_message global.tutorial_state "move"
-      ;
+      Tutorial.complete_message global.tutorial_state "move";
       if Scene.current () = Scene.House then
         Tutorial.show_message global.tutorial_state "menu"
     end
   );
-  register "s" (fun () -> 
+
+  register "s" (fun () ->
     let player = get_player_cached () in
     let global = get_global_cached () in
-    let is_typing = 
+    let is_typing =
       (match global.character_creation_state with
        | Some char_state -> char_state.input_focused
        | None -> false)
@@ -642,16 +783,16 @@ let () =
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_down;
-      Tutorial.complete_message global.tutorial_state "move"
-      ;
+      Tutorial.complete_message global.tutorial_state "move";
       if Scene.current () = Scene.House then
         Tutorial.show_message global.tutorial_state "menu"
     end
   );
-  register "d" (fun () -> 
+
+  register "d" (fun () ->
     let player = get_player_cached () in
     let global = get_global_cached () in
-    let is_typing = 
+    let is_typing =
       (match global.character_creation_state with
        | Some char_state -> char_state.input_focused
        | None -> false)
@@ -662,16 +803,16 @@ let () =
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_right;
-      Tutorial.complete_message global.tutorial_state "move"
-      ;
+      Tutorial.complete_message global.tutorial_state "move";
       if Scene.current () = Scene.House then
         Tutorial.show_message global.tutorial_state "menu"
     end
   );
-  register "q" (fun () -> 
+
+  register "q" (fun () ->
     let player = get_player_cached () in
     let global = get_global_cached () in
-    let is_typing = 
+    let is_typing =
       (match global.character_creation_state with
        | Some char_state -> char_state.input_focused
        | None -> false)
@@ -682,15 +823,12 @@ let () =
     in
     if not global.dialogue_state.active && global.menu_state = None && not is_typing && can_move_player global then begin
       Player.move_player player Cst.player_v_left;
-      Tutorial.complete_message global.tutorial_state "move"
-      ;
+      Tutorial.complete_message global.tutorial_state "move";
       if Scene.current () = Scene.House then
         Tutorial.show_message global.tutorial_state "menu"
     end
   );
-  
 
-  
   register "space" (fun () ->
     let global = get_global_cached () in
     if global.library_guide_state.active then

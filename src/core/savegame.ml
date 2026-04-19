@@ -1,3 +1,25 @@
+type legacy_data = {
+  scene : Scene.scene;
+  player_x : float;
+  player_y : float;
+  player_name : string;
+  house_exit_attempted : bool;
+  has_secret_book : bool;
+  chest_challenge_completed : bool;
+  knight_challenge_completed : bool;
+  skin : string;
+  school_students_event_completed : bool;
+  classroom_intro_completed : bool;
+  lambda_duel_started : bool;
+  lambda_duel_stage : int;
+  lambda_golem_hp : int;
+  lambda_golem_hp_visible : bool;
+  lambda_duel_completed : bool;
+  lambda_library_instruction_seen : bool;
+  dynamic_magic_cinematic_done : bool;
+  library_intro_seen : bool;
+}
+
 type data = {
   scene : Scene.scene;
   player_x : float;
@@ -15,9 +37,14 @@ type data = {
   lambda_golem_hp : int;
   lambda_golem_hp_visible : bool;
   lambda_duel_completed : bool;
+  lambda_library_instruction_seen : bool;
+  classroom_scripted_movement_active : bool;
   dynamic_magic_cinematic_done : bool;
   library_intro_seen : bool;
 }
+
+type file_payload =
+  | Save_v2 of data
 
 let save_path = "savegame.dat"
 
@@ -35,7 +62,7 @@ let delete () =
 
 let save (global : Global.t) =
   let player_pos = global.player#position#get in
-  let payload = {
+  let payload = Save_v2 {
     scene = Scene.current ();
     player_x = player_pos.x;
     player_y = player_pos.y;
@@ -52,6 +79,8 @@ let save (global : Global.t) =
     lambda_golem_hp = global.lambda_golem_hp;
     lambda_golem_hp_visible = global.lambda_golem_hp_visible;
     lambda_duel_completed = global.lambda_duel_completed;
+    lambda_library_instruction_seen = global.lambda_library_instruction_seen;
+    classroom_scripted_movement_active = global.classroom_scripted_movement_active;
     dynamic_magic_cinematic_done = global.dynamic_magic_cinematic_done;
     library_intro_seen = global.library_intro_seen;
   }
@@ -70,11 +99,40 @@ let load () =
   else
     try
       let in_channel = open_in_bin save_path in
-      let payload : data = Marshal.from_channel in_channel in
+      let loaded : file_payload = Marshal.from_channel in_channel in
       close_in in_channel;
-      Some payload
+      match loaded with
+      | Save_v2 payload -> Some payload
     with _ ->
-      None
+      (* Backward compatibility with old unversioned saves. *)
+      try
+        let in_channel = open_in_bin save_path in
+        let payload : legacy_data = Marshal.from_channel in_channel in
+        close_in in_channel;
+        Some {
+          scene = payload.scene;
+          player_x = payload.player_x;
+          player_y = payload.player_y;
+          player_name = payload.player_name;
+          house_exit_attempted = payload.house_exit_attempted;
+          has_secret_book = payload.has_secret_book;
+          chest_challenge_completed = payload.chest_challenge_completed;
+          knight_challenge_completed = payload.knight_challenge_completed;
+          skin = payload.skin;
+          school_students_event_completed = payload.school_students_event_completed;
+          classroom_intro_completed = payload.classroom_intro_completed;
+          lambda_duel_started = payload.lambda_duel_started;
+          lambda_duel_stage = payload.lambda_duel_stage;
+          lambda_golem_hp = payload.lambda_golem_hp;
+          lambda_golem_hp_visible = payload.lambda_golem_hp_visible;
+          lambda_duel_completed = payload.lambda_duel_completed;
+          lambda_library_instruction_seen = payload.lambda_library_instruction_seen;
+          classroom_scripted_movement_active = false;
+          dynamic_magic_cinematic_done = payload.dynamic_magic_cinematic_done;
+          library_intro_seen = payload.library_intro_seen;
+        }
+      with _ ->
+        None
 
 let apply_to_global (global : Global.t) payload =
   Scene.set_scene payload.scene;
@@ -91,6 +149,8 @@ let apply_to_global (global : Global.t) payload =
   global.lambda_golem_hp <- payload.lambda_golem_hp;
   global.lambda_golem_hp_visible <- payload.lambda_golem_hp_visible;
   global.lambda_duel_completed <- payload.lambda_duel_completed;
+  global.lambda_library_instruction_seen <- payload.lambda_library_instruction_seen;
+  global.classroom_scripted_movement_active <- payload.classroom_scripted_movement_active;
   global.dynamic_magic_cinematic_done <- payload.dynamic_magic_cinematic_done;
   global.dynamic_magic_cinematic_active <- false;
   global.dynamic_magic_phase <- 0;

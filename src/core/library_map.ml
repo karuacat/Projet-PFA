@@ -73,3 +73,14 @@ let spawn_from_school () =
 
 let is_blocked col row =
   layout.(row).[col] = 'N'
+
+let collision_rects () =
+  let rects = ref [] in
+  let add rect = rects := rect :: !rects in
+  for r = 0 to rows - 1 do
+    for c = 0 to cols - 1 do
+      if is_blocked c r then
+        add (cell_x c, cell_y r, cell_w, cell_h)
+    done
+  done;
+  List.rev !rects

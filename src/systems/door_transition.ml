@@ -47,6 +47,10 @@ let check_door_collision doors =
                   global.knight_challenge_completed
                 else if door_config.id = "school_library_door" then
                   global.lambda_duel_completed
+                else if door_config.id = "classroom_school_door" then
+                  global.classroom_intro_completed
+                  && global.lambda_duel_completed
+                  && global.lambda_library_instruction_seen
                 else if door_config.id = "library_school_door" then
                   Library_guide.training_progress global.library_guide_state > 0
                   && global.dynamic_magic_cinematic_done
@@ -93,9 +97,27 @@ let check_door_collision doors =
                       (Dialogue.create_dialogue [
                         {
                           Component_defs.speaker = "Moi";
-                          text = "Le cours n'est pas encore fini... je dois d'abord le terminer.";
+                          text = "Le cours va commencer, je dois y aller.";
                         };
                       ])
+                ) else if door_config.id = "classroom_school_door" then (
+                  if not dialogue_state.active then
+                    if global.classroom_intro_completed && not global.lambda_duel_completed then
+                      Dialogue.start_dialogue dialogue_state
+                        (Dialogue.create_dialogue [
+                          {
+                            Component_defs.speaker = "Aerin";
+                            text = "Viens m'affronter sale lache !";
+                          };
+                        ])
+                    else
+                      Dialogue.start_dialogue dialogue_state
+                        (Dialogue.create_dialogue [
+                          {
+                            Component_defs.speaker = "Moi";
+                            text = "Je dois d'abord aller revoir le professeur Lambda.";
+                          };
+                        ])
                 ) else if door_config.id = "library_school_door" then (
                   if not dialogue_state.active then
                     Dialogue.start_dialogue dialogue_state

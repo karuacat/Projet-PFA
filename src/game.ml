@@ -73,7 +73,7 @@ let run () =
   Tutorial.register_message tutorial_state "find_library" "Trouver la bibliothèque";
   
   let menu = Menu.create () in
-  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None; on_escape_pressed = None; player_name = "Apprenti"; code_challenge_state = Some code_challenge_state; house_exit_attempted = false; has_secret_book = false; chest_challenge_completed = false; knight_challenge_completed = false; school_students_event_completed = false; classroom_intro_completed = false; lambda_duel_started = false; lambda_duel_stage = 0; lambda_golem_hp = 20; lambda_golem_hp_visible = false; lambda_duel_completed = false; dynamic_magic_cinematic_done = false; dynamic_magic_cinematic_active = false; dynamic_magic_phase = 0; dynamic_magic_timer = 0.0; dynamic_magic_pending_target_scene = None; dynamic_magic_spawn_x = 0; dynamic_magic_spawn_y = 0; library_guide_state; library_intro_seen = false } in
+  let global = Global.{ window; ctx; player; waiting = 0; dialogue_state; tutorial_state; font; menu_state = Some menu; character_creation_state = None; on_character_complete = None; on_escape_pressed = None; player_name = "Apprenti"; code_challenge_state = Some code_challenge_state; house_exit_attempted = false; has_secret_book = false; chest_challenge_completed = false; knight_challenge_completed = false; school_students_event_completed = false; classroom_intro_completed = false; lambda_duel_started = false; lambda_duel_stage = 0; lambda_golem_hp = 20; lambda_golem_hp_visible = false; lambda_duel_completed = false; lambda_library_instruction_seen = false; classroom_scripted_movement_active = false; dynamic_magic_cinematic_done = false; dynamic_magic_cinematic_active = false; dynamic_magic_phase = 0; dynamic_magic_timer = 0.0; dynamic_magic_pending_target_scene = None; dynamic_magic_spawn_x = 0; dynamic_magic_spawn_y = 0; library_guide_state; library_intro_seen = false } in
   Global.set global;
   
   let rec start_new_game () =
@@ -90,6 +90,8 @@ let run () =
     global.lambda_golem_hp <- 20;
     global.lambda_golem_hp_visible <- false;
     global.lambda_duel_completed <- false;
+    global.lambda_library_instruction_seen <- false;
+    global.classroom_scripted_movement_active <- false;
     global.dynamic_magic_cinematic_done <- false;
     global.dynamic_magic_cinematic_active <- false;
     global.dynamic_magic_phase <- 0;
@@ -100,6 +102,7 @@ let run () =
     Library_guide.close_panel global.library_guide_state;
     global.library_intro_seen <- false;
     Story_events_system.reset_for_new_game ();
+    Input.reset_interaction_state ();
     global.player_name <- "Apprenti";
     global.player#position#set Vector.{ x = float Cst.player_start_x; y = float Cst.player_start_y };
     Player.set_skin_tag "male";

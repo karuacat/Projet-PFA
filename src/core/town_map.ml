@@ -69,3 +69,19 @@ let academy_door_rect () =
   let w = (academy_gate_right_col - academy_gate_left_col + 1) * Cst.town_cell_w in
   let h = Cst.town_cell_h / 3 in
   (x, y, w, h)
+
+let collision_rects () =
+  let rects = ref [] in
+  let add rect = rects := rect :: !rects in
+  for r = 0 to Cst.town_rows - 1 do
+    for c = 0 to Cst.town_cols - 1 do
+      if layout.(r).[c] = 'N' then
+        add (cell_x c, cell_y r, Cst.town_cell_w, Cst.town_cell_h)
+    done
+  done;
+  let border = 4 in
+  add (0, Cst.window_height - border, Cst.window_width, border);
+  add (0, 0, border, Cst.window_height);
+  add (Cst.window_width - border, 0, border, Cst.window_height);
+  add (0, 0, Cst.window_width, border);
+  List.rev !rects

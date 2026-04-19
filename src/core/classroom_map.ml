@@ -3,14 +3,14 @@ let layout = [|
   "NNNNNNNNNNNNNNNNNNNN";
   "NNNNNNNNNNNNNNNNNNNN";
   "NOOOOCNCOOOOOOOOCNCN";
-  "NOOOOCNCOOOOOOOOCCCN";
+  "NOOOOCNCOOOOOOOPCCCN";
   "NBTTTCCCOOOOOOOOOOON";
-  "NBTATOOOOCCOOCCOOCCN";
+  "N1TATOOOOCCOOCCOOCCN";
   "NBTTTOONOCCOOCCOOCCN";
-  "NBTTTOOOOCCOOCCOOCCN";
+  "N2TTTOOOOCCOOCCOOCCN";
   "NBTTTLONOCCOOCCOOCCN";
   "NBTTTOOOOCCOOCCOOCCN";
-  "NBTJTOONOCCOOCCOOCCN";
+  "N3TJTOONOCCOOCCOOCCN";
   "NBTTTOOOOOOOOOOOOOON";
   "NNNNNOONNNNNNNNNNNNN";
   "NNNNNSSNNNNNNNNNNNNN";
@@ -74,22 +74,34 @@ let collision_rects () =
       let h = Cst.classroom_cell_h in
       match layout.(row).[col] with
       | 'N' -> add (x, y, w, h)
-      | 'B' -> add (x + 6, y + 2, w - 12, h - 4)
+        | 'B' | '1' | '2' | '3' ->
+          add (x + 2, y + 2, w - 4, h - 4)
+      | 'A' ->
+          ()
       | 'C' ->
-          let left = has_marker (col - 1) row 'C' in
-          let right = has_marker (col + 1) row 'C' in
-          let up = has_marker col (row - 1) 'C' in
-          let down = has_marker col (row + 1) 'C' in
-          if left || right then
-            add (x + 3, y + 10, w - 6, h - 18)
-          else if up || down then
-            add (x + 8, y + 4, w - 16, h - 8)
+          let in_student_desks = col >= 9 in
+          let is_tabletop_row = row = 7 || row = 9 || row = 11 in
+          if in_student_desks && is_tabletop_row then
+            begin
+              add (x + 3, y + 3, w - 6, 13);
+              add (x + 3, y - 10, w - 6, 13)
+            end
           else
             ()
+      | 'T' ->
+          ()
       | _ -> ()
     done
   done;
   List.rev !rects
+
+let npc_collision_rects () =
+  List.filter
+    (fun (x, y, w, h) ->
+      let cell_col = x / Cst.classroom_cell_w in
+      let cell_row = y / Cst.classroom_cell_h in
+      not (in_bounds cell_col cell_row && layout.(cell_row).[cell_col] = 'B'))
+    (collision_rects ())
 
 let school_door_rect () =
   rect_for_marker

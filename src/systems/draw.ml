@@ -133,6 +133,61 @@ let update _dt el =
       y := !y + cell
     done
   end;
+  let collision_rects_for_scene =
+    match current_scene with
+    | Scene.House -> House_map.collision_rects ()
+    | Scene.Town -> Town_map.collision_rects ()
+    | Scene.School -> School_map.collision_rects ()
+    | Scene.Library -> Library_map.collision_rects ()
+    | Scene.Classroom -> Classroom_map.collision_rects ()
+    | _ -> []
+  in
+  if Cst.debug_draw_classroom_collisions && collision_rects_for_scene <> [] then begin
+    List.iter
+      (fun (x, y, w, h) ->
+        Gfx.set_color ctx (Gfx.color 255 80 80 80);
+        Gfx.fill_rect ctx surface x y w h;
+        Gfx.set_color ctx (Gfx.color 255 120 120 220);
+        Gfx.fill_rect ctx surface x y w 1;
+        Gfx.fill_rect ctx surface x (y + h - 1) w 1;
+        Gfx.fill_rect ctx surface x y 1 h;
+        Gfx.fill_rect ctx surface (x + w - 1) y 1 h)
+      collision_rects_for_scene
+  end;
+  if Cst.debug_draw_npc_navigation && (current_scene = Scene.School || current_scene = Scene.Classroom) then begin
+    List.iter
+      (fun (dbg : Navigation_debug.snapshot) ->
+        if dbg.scene = current_scene then begin
+          List.iter
+            (fun (px, py) ->
+              Gfx.set_color ctx (Gfx.color 80 170 255 180);
+              Gfx.fill_rect ctx surface (int_of_float px + 10) (int_of_float py + 14) 4 4)
+            dbg.path_points;
+          (match dbg.waypoint with
+           | Some (wx, wy) ->
+               Gfx.set_color ctx (Gfx.color 255 170 70 210);
+               Gfx.fill_rect ctx surface (int_of_float wx + 8) (int_of_float wy + 12) 8 8
+           | None -> ());
+          let tx, ty = dbg.target in
+          Gfx.set_color ctx (Gfx.color 70 220 220 220);
+          Gfx.fill_rect ctx surface (int_of_float tx + 8) (int_of_float ty + 12) 8 8;
+          let rx, ry, rw, rh = dbg.npc_rect in
+          let box_color =
+            match dbg.blocked_reason with
+            | None -> Gfx.color 90 220 120 220
+            | Some "player" -> Gfx.color 245 210 80 220
+            | Some "bounds" -> Gfx.color 255 90 180 220
+            | Some "obstacle" -> Gfx.color 255 100 100 220
+            | _ -> Gfx.color 190 190 190 220
+          in
+          Gfx.set_color ctx box_color;
+          Gfx.fill_rect ctx surface rx ry rw 1;
+          Gfx.fill_rect ctx surface rx (ry + rh - 1) rw 1;
+          Gfx.fill_rect ctx surface rx ry 1 rh;
+          Gfx.fill_rect ctx surface (rx + rw - 1) ry 1 rh
+        end)
+      (Navigation_debug.all ())
+  end;
   let drawables =
     el
     |> Seq.filter should_draw

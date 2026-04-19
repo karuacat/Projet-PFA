@@ -80,7 +80,6 @@ let house_exit_blocked = create_dialogue [
 let chest_intro = create_dialogue [
   { speaker = "Moi"; text = "Bien sûr il est fermé à clé !" };
   { speaker = "Moi"; text = "Il faut que je les fasse apparaître." };
-  { speaker = "Coffre de l'Apprenti"; text = "[Appuie sur C pour tenter l'épreuve]\n[ENTREE pour valider]" };
 ]
 
 let chest_success = create_dialogue [
@@ -114,7 +113,7 @@ let knight_guardian_intro = create_dialogue [
   { speaker = "Chevalier Gardien"; text = "Aucun acier ne protège mieux\nqu'un symbole bien formé." };
   { speaker = "Chevalier Gardien"; text = "Montre-moi que tu sais nommer\nsans ambiguïté." };
   { speaker = "Chevalier Gardien"; text = "Déclare ton nom avec une variable string." };
-  { speaker = "Chevalier Gardien"; text = "[Appuie sur C pour tenter l'épreuve]\n[Ctrl+ENTREE pour retourner à la ligne]\n[ENTREE pour valider]" };
+  { speaker = "Chevalier Gardien"; text = "L'épreuve commence maintenant.\n" };
 ]
 
 let knight_guardian_failure = create_dialogue [

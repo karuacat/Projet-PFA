@@ -25,6 +25,8 @@ type t = {
   mutable lambda_golem_hp : int;
   mutable lambda_golem_hp_visible : bool;
   mutable lambda_duel_completed : bool;
+  mutable lambda_library_instruction_seen : bool;
+  mutable classroom_scripted_movement_active : bool;
   mutable dynamic_magic_cinematic_done : bool;
   mutable dynamic_magic_cinematic_active : bool;
   mutable dynamic_magic_phase : int;

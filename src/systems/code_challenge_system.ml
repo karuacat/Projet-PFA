@@ -75,18 +75,24 @@ let draw_code_cursor ctx surface font code cursor_pos x y line_height =
 let draw_hint_box ctx surface font state code_x code_y code_w =
   match Code_challenge.get_last_failure_reason state with
   | None -> ()
-    | Some _ ->
-      (match Code_challenge.get_type_exercise_hint state with
+  | Some _ ->
+      let hint_opt =
+        match state.Code_challenge.challenge with
+        | Some Code_challenge.GolemActivateHp ->
+            Some "Indice: ecris exactement let pv = true;;"
+        | _ -> Code_challenge.get_type_exercise_hint state
+      in
+      (match hint_opt with
        | None -> ()
        | Some hint ->
-         let hint_box_y = code_y + 140 in
-         let hint_box_h = 42 in
-         Gfx.set_color ctx (Gfx.color 38 46 66 255);
-         Gfx.fill_rect ctx surface (code_x + 14) hint_box_y (code_w - 28) hint_box_h;
-         Gfx.set_color ctx (Gfx.color 128 190 255 255);
-         Gfx.fill_rect ctx surface (code_x + 14) hint_box_y (code_w - 28) 2;
-         let hint_surf = Gfx.render_text ctx hint font in
-         Gfx.blit ctx surface hint_surf (code_x + 24) (hint_box_y + 12))
+           let hint_box_y = code_y + 140 in
+           let hint_box_h = 42 in
+           Gfx.set_color ctx (Gfx.color 38 46 66 255);
+           Gfx.fill_rect ctx surface (code_x + 14) hint_box_y (code_w - 28) hint_box_h;
+           Gfx.set_color ctx (Gfx.color 128 190 255 255);
+           Gfx.fill_rect ctx surface (code_x + 14) hint_box_y (code_w - 28) 2;
+           let hint_surf = Gfx.render_text ctx hint font in
+           Gfx.blit ctx surface hint_surf (code_x + 24) (hint_box_y + 12))
 
 let draw_single_aerin_frame ctx surface aerin_img dx dy dw dh =
   let sw, sh = Gfx.surface_size aerin_img in
@@ -102,7 +108,7 @@ let draw_single_aerin_frame ctx surface aerin_img dx dy dw dh =
 let lambda_duel_comment state =
   match state.Code_challenge.challenge with
   | Some Code_challenge.GolemActivateHp ->
-      "Professeur Lambda: Il faut que tu active les points de vie du Golem avant de pouvoir l'attaquer."
+      "Professeur Lambda: Il faut que tu active les PV (points de vie) du Golem avant de pouvoir l'attaquer."
   | Some Code_challenge.GolemDealDamage ->
       "Professeur Lambda: Maintenant inflige lui des degats equivalent a ses pv."
   | _ ->
@@ -302,8 +308,10 @@ let draw_code_interface state =
     draw_code_cursor ctx surface font state.Code_challenge.code state.Code_challenge.cursor_pos (input_x + 10) (input_y + 10) 20;
   
   Gfx.set_color ctx (Gfx.color 150 150 150 255);
-    let instr_surf = Gfx.render_text ctx "ENTREE: Valider | ECHAP: Annuler | Ctrl+ENTREE: Nouvelle ligne" font in
-    Gfx.blit ctx surface instr_surf (box_x + 10) (box_y + 250)
+    let instr_line_1 = Gfx.render_text ctx "ENTREE: Valider | ECHAP: Annuler" font in
+    let instr_line_2 = Gfx.render_text ctx "Ctrl+ENTREE: Retour à la ligne" font in
+    Gfx.blit ctx surface instr_line_1 (box_x + 10) (box_y + 242);
+    Gfx.blit ctx surface instr_line_2 (box_x + 10) (box_y + 264)
   end
 
 let update (_ : float) (_ : t Seq.t) =

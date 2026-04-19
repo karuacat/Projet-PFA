@@ -34,6 +34,7 @@ let school_walk_tick = ref 0
 let classroom_seating_started = ref false
 let classroom_seating_done = ref false
 let classroom_seat_target : (float * float) option ref = ref None
+let classroom_seat_waypoints : (float * float) list ref = ref []
 let classroom_seating_stuck_ticks = ref 0
 let classroom_last_player_pos : Vector.t option ref = ref None
 let classroom_seating_total_ticks = ref 0
@@ -45,14 +46,16 @@ let lambda_post_target : (float * float) option ref = ref None
 let student_a_post_target : (float * float) option ref = ref None
 let student_b_post_target : (float * float) option ref = ref None
 let student_c_post_target : (float * float) option ref = ref None
-let aerin_route_waypoint : (float * float) option ref = ref None
-let lambda_route_waypoint : (float * float) option ref = ref None
-let student_a_route_waypoint : (float * float) option ref = ref None
-let student_b_route_waypoint : (float * float) option ref = ref None
-let student_c_route_waypoint : (float * float) option ref = ref None
+let aerin_route_waypoints : (float * float) list ref = ref []
+let lambda_route_waypoints : (float * float) list ref = ref []
+let student_a_route_waypoints : (float * float) list ref = ref []
+let student_b_route_waypoints : (float * float) list ref = ref []
+let student_c_route_waypoints : (float * float) list ref = ref []
+
 let aerin_exit_started = ref false
 let aerin_exit_phase = ref 0
 let aerin_exit_waypoint : (float * float) option ref = ref None
+let aerin_exit_route_waypoints : (float * float) list ref = ref []
 let aerin_exit_target : (float * float) option ref = ref None
 let aerin_exit_dialogue_started = ref false
 let lambda_post_aerin_dialogue_started = ref false
@@ -62,6 +65,9 @@ let lambda_return_started = ref false
 let school_students_after_course_spawned = ref false
 let classroom_students_hidden_after_exit = ref false
 let previous_scene : Scene.scene option ref = ref None
+
+let is_post_duel_sequence_active () =
+  !aerin_exit_started || !students_exit_started || !lambda_return_started
 
 let sprite_row_down = 0
 let sprite_row_left = 1
@@ -100,23 +106,443 @@ let distance_sq v1 v2 =
   let dy = v1.Vector.y -. v2.Vector.y in
   (dx *. dx) +. (dy *. dy)
 
-let move_npc_toward npc target_x target_y speed =
+type path_cache_entry = {
+  scene : Scene.scene;
+  goal : int * int;
+  ignore_player : bool;
+  mutable cells : (int * int) list;
+}
+
+let npc_path_cache : (npc_entity, path_cache_entry) Hashtbl.t = Hashtbl.create 64
+let npc_blocked_ticks : (npc_entity, int) Hashtbl.t = Hashtbl.create 64
+
+let school_intro_npc_refs () =
+  [ !school_student_a_ref; !school_student_b_ref; !school_messenger_ref ]
+
+let collides_other_school_intro_npc (npc : npc_entity) (candidate : Rect.rect_f) =
+  let global = Global.get () in
+  if Scene.current () <> Scene.School || global.school_students_event_completed then
+    false
+  else
+    List.exists
+      (function
+        | Some other when not (other == npc) ->
+            (match other#tag#get with
+             | InScene Scene.School ->
+                 let other_pos = other#position#get in
+                 let other_box = other#box#get in
+                 let other_rect : Rect.rect_f =
+                   {
+                     x = other_pos.Vector.x;
+                     y = other_pos.Vector.y;
+                     width = float_of_int other_box.Rect.width;
+                     height = float_of_int other_box.Rect.height;
+                   }
+                 in
+                 Rect.collides candidate other_rect
+             | _ -> false)
+        | _ -> false)
+      (school_intro_npc_refs ())
+
+let route_mode_for_current_state () =
+  let global = Global.get () in
+  if
+    (Scene.current () = Scene.School && not global.school_students_event_completed)
+    ||
+    (Scene.current () = Scene.Classroom
+     &&
+    (not global.classroom_intro_completed
+     || !classroom_post_success_started
+     || !aerin_exit_started
+     || !students_exit_started
+     || !lambda_return_started))
+  then
+    Navigation_debug.Scripted
+  else
+    Navigation_debug.Dynamic
+
+let rect_from_pos_box (pos : Vector.t) (box : Rect.t) : Rect.rect_f =
+  {
+    x = pos.Vector.x;
+    y = pos.Vector.y;
+    width = float_of_int box.width;
+    height = float_of_int box.height;
+  }
+
+let rect_for_int x y w h : Rect.rect_f =
+  {
+    x = float_of_int x;
+    y = float_of_int y;
+    width = float_of_int w;
+    height = float_of_int h;
+  }
+
+let rect_collides_player (candidate : Rect.rect_f) =
+  let global = Global.get () in
+  let player_pos = global.player#position#get in
+  let player_box = global.player#box#get in
+  let player_rect = rect_from_pos_box player_pos player_box in
+  Rect.collides candidate player_rect
+
+let collides_town_obstacles (candidate : Rect.rect_f) =
+  let min_col = max 0 (int_of_float (candidate.x /. float_of_int Cst.town_cell_w)) in
+  let max_col =
+    min (Cst.town_cols - 1)
+      (int_of_float ((candidate.x +. candidate.width -. 0.001) /. float_of_int Cst.town_cell_w))
+  in
+  let min_row = max 0 (int_of_float (candidate.y /. float_of_int Cst.town_cell_h)) in
+  let max_row =
+    min (Cst.town_rows - 1)
+      (int_of_float ((candidate.y +. candidate.height -. 0.001) /. float_of_int Cst.town_cell_h))
+  in
+  let rec rows r =
+    if r > max_row then false
+    else
+      let rec cols c =
+        if c > max_col then false
+        else if Town_map.is_blocked c r then true
+        else cols (c + 1)
+      in
+      if cols min_col then true else rows (r + 1)
+  in
+  rows min_row
+
+let collides_school_obstacles (candidate : Rect.rect_f) =
+  let min_col = max 0 (int_of_float (candidate.x /. float_of_int Cst.school_cell_w)) in
+  let max_col =
+    min (Cst.school_cols - 1)
+      (int_of_float ((candidate.x +. candidate.width -. 0.001) /. float_of_int Cst.school_cell_w))
+  in
+  let min_row = max 0 (int_of_float (candidate.y /. float_of_int Cst.school_cell_h)) in
+  let max_row =
+    min (Cst.school_rows - 1)
+      (int_of_float ((candidate.y +. candidate.height -. 0.001) /. float_of_int Cst.school_cell_h))
+  in
+  let rec rows r =
+    if r > max_row then false
+    else
+      let rec cols c =
+        if c > max_col then false
+        else if School_map.is_blocked c r then true
+        else cols (c + 1)
+      in
+      if cols min_col then true else rows (r + 1)
+  in
+  rows min_row
+
+let collides_classroom_obstacles (candidate : Rect.rect_f) =
+  let min_col = max 0 (int_of_float (candidate.x /. float_of_int Cst.classroom_cell_w)) in
+  let max_col =
+    min (Cst.classroom_cols - 1)
+      (int_of_float ((candidate.x +. candidate.width -. 0.001) /. float_of_int Cst.classroom_cell_w))
+  in
+  let min_row = max 0 (int_of_float (candidate.y /. float_of_int Cst.classroom_cell_h)) in
+  let max_row =
+    min (Cst.classroom_rows - 1)
+      (int_of_float ((candidate.y +. candidate.height -. 0.001) /. float_of_int Cst.classroom_cell_h))
+  in
+  let rec rows r =
+    if r > max_row then false
+    else
+      let rec cols c =
+        if c > max_col then false
+        else if Classroom_map.is_blocked c r then true
+        else cols (c + 1)
+      in
+      if cols min_col then true else rows (r + 1)
+  in
+  let blocked_cells = rows min_row in
+  if blocked_cells then true
+  else
+    List.exists
+      (fun (x, y, w, h) -> Rect.collides candidate (rect_for_int x y w h))
+      (Classroom_map.npc_collision_rects ())
+
+let npc_can_stand_at ?(ignore_player=false) (npc : npc_entity) (x : float) (y : float) =
+  let box = npc#box#get in
+  let candidate = rect_from_pos_box Vector.{x; y} box in
+  let out_of_bounds =
+    candidate.x < 0.0
+    || candidate.y < 0.0
+    || candidate.x +. candidate.width > float_of_int Cst.window_width
+    || candidate.y +. candidate.height > float_of_int Cst.window_height
+  in
+  if out_of_bounds || ((not ignore_player) && rect_collides_player candidate) then false
+  else if collides_other_school_intro_npc npc candidate then false
+  else
+    match Scene.current () with
+    | Scene.Town -> not (collides_town_obstacles candidate)
+    | Scene.School -> not (collides_school_obstacles candidate)
+    | Scene.Classroom -> not (collides_classroom_obstacles candidate)
+    | _ -> true
+
+let classify_block_reason ?(ignore_player=false) (npc : npc_entity) (x : float) (y : float) =
+  let box = npc#box#get in
+  let candidate = rect_from_pos_box Vector.{x; y} box in
+  let out_of_bounds =
+    candidate.x < 0.0
+    || candidate.y < 0.0
+    || candidate.x +. candidate.width > float_of_int Cst.window_width
+    || candidate.y +. candidate.height > float_of_int Cst.window_height
+  in
+  if out_of_bounds then
+    Some "bounds"
+  else if (not ignore_player) && rect_collides_player candidate then
+    Some "player"
+  else if collides_other_school_intro_npc npc candidate then
+    Some "npc"
+  else
+    match Scene.current () with
+    | Scene.Town -> if collides_town_obstacles candidate then Some "obstacle" else Some "unknown"
+    | Scene.School -> if collides_school_obstacles candidate then Some "obstacle" else Some "unknown"
+    | Scene.Classroom -> if collides_classroom_obstacles candidate then Some "obstacle" else Some "unknown"
+    | _ -> Some "unknown"
+
+let scene_grid_info () =
+  match Scene.current () with
+  | Scene.School ->
+      Some
+        ( Cst.school_cols,
+          Cst.school_rows,
+          (fun col row ->
+            let cx, cy = School_map.cell_center col row in
+            (float_of_int (cx - 20), float_of_int (cy - 30))) )
+  | Scene.Classroom ->
+      Some
+        ( Cst.classroom_cols,
+          Cst.classroom_rows,
+          (fun col row ->
+            let cx, cy = Classroom_map.cell_center col row in
+            (float_of_int (cx - 20), float_of_int (cy - 30))) )
+  | _ -> None
+
+let find_nearest_walkable_cell ?(ignore_player=false) (npc : npc_entity) (px : float) (py : float) =
+  match scene_grid_info () with
+  | None -> None
+  | Some (cols, rows, to_anchor) ->
+      let best = ref None in
+      for row = 0 to rows - 1 do
+        for col = 0 to cols - 1 do
+          let ax, ay = to_anchor col row in
+          if npc_can_stand_at ~ignore_player npc ax ay then begin
+            let dx = ax -. px in
+            let dy = ay -. py in
+            let d2 = (dx *. dx) +. (dy *. dy) in
+            match !best with
+            | None -> best := Some (col, row, d2)
+            | Some (_, _, best_d2) when d2 < best_d2 -> best := Some (col, row, d2)
+            | _ -> ()
+          end
+        done
+      done;
+      match !best with
+      | Some (col, row, _) -> Some (col, row)
+      | None -> None
+
+let reconstruct_path came_from start_cell goal_cell =
+  let rec build acc current =
+    if current = start_cell then current :: acc
+    else
+      match Hashtbl.find_opt came_from current with
+      | Some prev -> build (current :: acc) prev
+      | None -> []
+  in
+  build [] goal_cell
+
+let astar_path_for_npc ?(ignore_player=false) (npc : npc_entity) (start_cell : int * int) (goal_cell : int * int) =
+  match scene_grid_info () with
+  | None -> []
+  | Some (cols, rows, to_anchor) ->
+      let neighbors (c, r) =
+        [ (c + 1, r); (c - 1, r); (c, r + 1); (c, r - 1) ]
+        |> List.filter (fun (nc, nr) -> nc >= 0 && nr >= 0 && nc < cols && nr < rows)
+      in
+      let heuristic (c, r) =
+        let gc, gr = goal_cell in
+        abs (gc - c) + abs (gr - r)
+      in
+      let open_set = ref [ start_cell ] in
+      let came_from : ((int * int), (int * int)) Hashtbl.t = Hashtbl.create 256 in
+      let g_score : ((int * int), int) Hashtbl.t = Hashtbl.create 256 in
+      Hashtbl.add g_score start_cell 0;
+      let f_score : ((int * int), int) Hashtbl.t = Hashtbl.create 256 in
+      Hashtbl.add f_score start_cell (heuristic start_cell);
+      let rec loop () =
+        match !open_set with
+        | [] -> []
+        | _ ->
+            let current =
+              List.fold_left
+                (fun best node ->
+                  let best_f = Option.value (Hashtbl.find_opt f_score best) ~default:max_int in
+                  let node_f = Option.value (Hashtbl.find_opt f_score node) ~default:max_int in
+                  if node_f < best_f then node else best)
+                (List.hd !open_set)
+                !open_set
+            in
+            if current = goal_cell then
+              reconstruct_path came_from start_cell goal_cell
+            else begin
+              open_set := List.filter (fun n -> n <> current) !open_set;
+              let current_g = Option.value (Hashtbl.find_opt g_score current) ~default:max_int in
+              List.iter
+                (fun nb ->
+                  let nc, nr = nb in
+                  let ax, ay = to_anchor nc nr in
+                  if npc_can_stand_at ~ignore_player npc ax ay then begin
+                    let tentative = current_g + 1 in
+                    let old_g = Option.value (Hashtbl.find_opt g_score nb) ~default:max_int in
+                    if tentative < old_g then begin
+                      Hashtbl.replace came_from nb current;
+                      Hashtbl.replace g_score nb tentative;
+                      Hashtbl.replace f_score nb (tentative + heuristic nb);
+                      if not (List.mem nb !open_set) then
+                        open_set := nb :: !open_set
+                    end
+                  end)
+                (neighbors current);
+              loop ()
+            end
+      in
+      loop ()
+
+let move_npc_step ?(ignore_player=false) npc target_x target_y speed =
   let pos = npc#position#get in
   let dx = target_x -. pos.Vector.x in
   let dy = target_y -. pos.Vector.y in
-  let dist = sqrt ((dx *. dx) +. (dy *. dy)) in
-  if dist <= speed || dist = 0.0 then (
-    npc#position#set Vector.{x = target_x; y = target_y};
+  let adx = abs_float dx in
+  let ady = abs_float dy in
+  if adx < 0.01 && ady < 0.01 then
     true
-  ) else (
-    npc#position#set Vector.{
-      x = pos.Vector.x +. (dx /. dist *. speed);
-      y = pos.Vector.y +. (dy /. dist *. speed);
-    };
-    false
+  else (
+    let step_x = if adx > 0.0 then (if dx > 0.0 then min speed adx else -. (min speed adx)) else 0.0 in
+    let step_y = if ady > 0.0 then (if dy > 0.0 then min speed ady else -. (min speed ady)) else 0.0 in
+    let try_move_x () =
+      adx > 0.01
+      && npc_can_stand_at ~ignore_player npc (pos.Vector.x +. step_x) pos.Vector.y
+      && (npc#position#set Vector.{x = pos.Vector.x +. step_x; y = pos.Vector.y}; true)
+    in
+    let try_move_y () =
+      ady > 0.01
+      && npc_can_stand_at ~ignore_player npc pos.Vector.x (pos.Vector.y +. step_y)
+      && (npc#position#set Vector.{x = pos.Vector.x; y = pos.Vector.y +. step_y}; true)
+    in
+    let prefer_x = adx >= ady in
+    let moved = if prefer_x then try_move_x () || try_move_y () else try_move_y () || try_move_x () in
+    if not moved then false
+    else
+      let after = npc#position#get in
+      abs_float (after.Vector.x -. target_x) < 0.01
+      && abs_float (after.Vector.y -. target_y) < 0.01
   )
 
+let move_npc_toward npc target_x target_y speed =
+  let mode = route_mode_for_current_state () in
+  let ignore_player_mode = mode = Navigation_debug.Scripted in
+  match scene_grid_info () with
+  | None ->
+      Navigation_debug.set npc mode target_x target_y;
+      move_npc_step ~ignore_player:ignore_player_mode npc target_x target_y speed
+  | Some (_, _, to_anchor) ->
+      let pos = npc#position#get in
+      let ensure_path ignore_player_mode =
+        let start_cell = find_nearest_walkable_cell ~ignore_player:ignore_player_mode npc pos.Vector.x pos.Vector.y in
+        let goal_cell = find_nearest_walkable_cell ~ignore_player:ignore_player_mode npc target_x target_y in
+        match start_cell, goal_cell with
+        | Some start_cell, Some goal_cell ->
+            let need_recompute =
+              match Hashtbl.find_opt npc_path_cache npc with
+              | Some cache ->
+                  cache.scene <> Scene.current ()
+                  || cache.goal <> goal_cell
+                  || cache.ignore_player <> ignore_player_mode
+                  || cache.cells = []
+              | None -> true
+            in
+            if need_recompute then begin
+              let cells = astar_path_for_npc ~ignore_player:ignore_player_mode npc start_cell goal_cell in
+              Hashtbl.replace npc_path_cache npc { scene = Scene.current (); goal = goal_cell; ignore_player = ignore_player_mode; cells }
+            end;
+            Hashtbl.find_opt npc_path_cache npc
+        | _ -> None
+      in
+      let cache_opt =
+        if ignore_player_mode then
+          ensure_path true
+        else
+          match ensure_path false with
+          | Some cache when cache.cells <> [] -> Some cache
+          | _ -> ensure_path true
+      in
+      (match cache_opt with
+       | Some cache ->
+           let rec drop_reached = function
+             | [] -> []
+             | (c, r) :: rest ->
+                 let ax, ay = to_anchor c r in
+                 if distance_sq pos Vector.{x = ax; y = ay} <= (speed +. 1.0) *. (speed +. 1.0) then
+                   drop_reached rest
+                 else
+                   (c, r) :: rest
+           in
+           cache.cells <- drop_reached cache.cells;
+           let waypoint =
+             match cache.cells with
+             | (c, r) :: _ ->
+                 let ax, ay = to_anchor c r in
+                 Some (ax, ay)
+             | [] -> None
+           in
+           let path_points =
+             List.map
+               (fun (c, r) ->
+                 let ax, ay = to_anchor c r in
+                 (ax, ay))
+               cache.cells
+           in
+           Navigation_debug.set ?waypoint ~path_points npc mode target_x target_y;
+           (match cache.cells with
+            | [] -> move_npc_step ~ignore_player:cache.ignore_player npc target_x target_y speed
+            | (c, r) :: rest ->
+                let ax, ay = to_anchor c r in
+                let before = npc#position#get in
+                let reached = move_npc_step ~ignore_player:cache.ignore_player npc ax ay speed in
+                let after = npc#position#get in
+                if reached then cache.cells <- rest;
+                if before = after && not reached then cache.cells <- [];
+                if reached && rest = [] then
+                  move_npc_step ~ignore_player:cache.ignore_player npc target_x target_y speed
+                else
+                  false)
+       | None ->
+           let reached = move_npc_step ~ignore_player:ignore_player_mode npc target_x target_y speed in
+           let blocked_reason = if reached then None else Some "no_path" in
+           Navigation_debug.set ?blocked_reason npc mode target_x target_y;
+           reached)
+
+let snap_npc_near_target npc target_x target_y =
+  match scene_grid_info () with
+  | Some (_, _, to_anchor) ->
+      (match find_nearest_walkable_cell ~ignore_player:true npc target_x target_y with
+       | Some (c, r) ->
+           let ax, ay = to_anchor c r in
+           npc#position#set Vector.{x = ax; y = ay};
+           true
+       | None ->
+           if npc_can_stand_at ~ignore_player:true npc target_x target_y then (
+             npc#position#set Vector.{x = target_x; y = target_y};
+             true
+           ) else
+             false)
+  | None ->
+      if npc_can_stand_at ~ignore_player:true npc target_x target_y then (
+        npc#position#set Vector.{x = target_x; y = target_y};
+        true
+      ) else
+        false
+
 let move_npc_toward_animated npc target_x target_y speed =
+  let mode = route_mode_for_current_state () in
   let pos = npc#position#get in
   let dx = target_x -. pos.Vector.x in
   let dy = target_y -. pos.Vector.y in
@@ -131,9 +557,109 @@ let move_npc_toward_animated npc target_x target_y speed =
     else if !school_walk_tick mod 18 < 12 then 1
     else 2
   in
+  let before = npc#position#get in
   let reached = move_npc_toward npc target_x target_y speed in
+  let after = npc#position#get in
+  let moved =
+    abs_float (after.Vector.x -. before.Vector.x) > 0.05
+    || abs_float (after.Vector.y -. before.Vector.y) > 0.05
+  in
+  if reached then begin
+    Hashtbl.remove npc_blocked_ticks npc;
+    Navigation_debug.update_block_reason npc None;
+    set_npc_sprite_row npc row;
+    true
+  end else if moved then begin
+    Hashtbl.remove npc_blocked_ticks npc;
+    Navigation_debug.update_block_reason npc None;
+    set_npc_walk_sprite npc row phase;
+    false
+  end else begin
+    let stuck = 1 + Option.value (Hashtbl.find_opt npc_blocked_ticks npc) ~default:0 in
+    Hashtbl.replace npc_blocked_ticks npc stuck;
+    let blocked_reason = classify_block_reason ~ignore_player:(mode = Navigation_debug.Scripted) npc target_x target_y in
+    Navigation_debug.update_block_reason npc blocked_reason;
+    if mode = Navigation_debug.Scripted && stuck >= 40 then begin
+      let snapped = snap_npc_near_target npc target_x target_y in
+      Hashtbl.remove npc_blocked_ticks npc;
+      if snapped then set_npc_sprite_row npc row;
+      if snapped then Navigation_debug.update_block_reason npc None;
+      snapped
+    end else if mode = Navigation_debug.Dynamic && stuck >= 20 then begin
+      Hashtbl.remove npc_path_cache npc;
+      false
+    end else begin
+      false
+    end
+  end
+
+let move_npc_step_axis ?(ignore_player=false) ?(check_collisions=true) npc target_x target_y speed =
+  let pos = npc#position#get in
+  let box = npc#box#get in
+  let can_stand nx ny =
+    if check_collisions then
+      npc_can_stand_at ~ignore_player npc nx ny
+    else
+      let candidate = rect_from_pos_box Vector.{x = nx; y = ny} box in
+      candidate.x >= 0.0
+      && candidate.y >= 0.0
+      && candidate.x +. candidate.width <= float_of_int Cst.window_width
+      && candidate.y +. candidate.height <= float_of_int Cst.window_height
+      && (ignore_player || not (rect_collides_player candidate))
+  in
+  let dx = target_x -. pos.Vector.x in
+  let dy = target_y -. pos.Vector.y in
+  let adx = abs_float dx in
+  let ady = abs_float dy in
+  if adx < 0.01 && ady < 0.01 then
+    true
+  else (
+    let step_x = if adx > 0.0 then (if dx > 0.0 then min speed adx else -. (min speed adx)) else 0.0 in
+    let step_y = if ady > 0.0 then (if dy > 0.0 then min speed ady else -. (min speed ady)) else 0.0 in
+    let try_move_x () =
+      adx > 0.01
+      && can_stand (pos.Vector.x +. step_x) pos.Vector.y
+      && (npc#position#set Vector.{x = pos.Vector.x +. step_x; y = pos.Vector.y}; true)
+    in
+    let try_move_y () =
+      ady > 0.01
+      && can_stand pos.Vector.x (pos.Vector.y +. step_y)
+      && (npc#position#set Vector.{x = pos.Vector.x; y = pos.Vector.y +. step_y}; true)
+    in
+    let prefer_x = adx >= ady in
+    let moved = if prefer_x then try_move_x () || try_move_y () else try_move_y () || try_move_x () in
+    if not moved then false
+    else
+      let after = npc#position#get in
+      abs_float (after.Vector.x -. target_x) < 0.01
+      && abs_float (after.Vector.y -. target_y) < 0.01
+  )
+
+let move_npc_toward_axis_animated ?(ignore_player=false) ?(check_collisions=true) npc target_x target_y speed =
+  let pos = npc#position#get in
+  let dx = target_x -. pos.Vector.x in
+  let dy = target_y -. pos.Vector.y in
+  let row =
+    if abs_float dx > abs_float dy then
+      if dx >= 0.0 then sprite_row_right else sprite_row_left
+    else if dy >= 0.0 then sprite_row_down else sprite_row_up
+  in
+  incr school_walk_tick;
+  let phase =
+    if !school_walk_tick mod 18 < 6 then 0
+    else if !school_walk_tick mod 18 < 12 then 1
+    else 2
+  in
+  let before = npc#position#get in
+  let reached = move_npc_step_axis ~ignore_player ~check_collisions npc target_x target_y speed in
+  let after = npc#position#get in
+  let moved =
+    abs_float (after.Vector.x -. before.Vector.x) > 0.05
+    || abs_float (after.Vector.y -. before.Vector.y) > 0.05
+  in
   if reached then set_npc_sprite_row npc row
-  else set_npc_walk_sprite npc row phase;
+  else if moved then set_npc_walk_sprite npc row phase
+  else ();
   reached
 
 let school_npc_target col row =
@@ -165,36 +691,79 @@ let spread_three_cells cells fallback =
   ] else fallback
 
 let assign_post_targets_from_markers () =
-  let fallback_b_cells = [ (1, 5); (1, 8); (1, 12) ] in
-  let b_cells = spread_three_cells (Classroom_map.marker_cells 'B') fallback_b_cells in
-  let b1 = List.nth b_cells 0 in
-  let b2 = List.nth b_cells 1 in
-  let b3 = List.nth b_cells 2 in
-  aerin_post_target := Some (classroom_marker_target 'A' 4 6);
-  lambda_post_target := Some (classroom_marker_target 'L' 4 9);
-  student_a_post_target := Some (classroom_npc_target (fst b1) (snd b1));
-  student_b_post_target := Some (classroom_npc_target (fst b2) (snd b2));
-  student_c_post_target := Some (classroom_npc_target (fst b3) (snd b3));
-  (* Route via the front lane to avoid crossing the player lane. *)
-  aerin_route_waypoint := Some (classroom_npc_target 9 4);
-  lambda_route_waypoint := Some (classroom_npc_target 9 4);
-  student_a_route_waypoint := Some (classroom_npc_target 3 4);
-  student_b_route_waypoint := Some (classroom_npc_target 3 4);
-  student_c_route_waypoint := Some (classroom_npc_target 3 4)
+  let target_1 = classroom_marker_target '1' 1 6 in
+  let target_2 = classroom_marker_target '2' 1 8 in
+  let target_3 = classroom_marker_target '3' 1 12 in
+  let target_a = classroom_marker_target 'A' 3 6 in
+  let target_l = classroom_marker_target 'L' 5 9 in
 
-let move_npc_ref_to_target npc_ref target_ref speed =
-  match !npc_ref, !target_ref with
-  | Some npc, Some (tx, ty) -> move_npc_toward_animated npc tx ty speed
-  | _ -> true
+  aerin_post_target := Some target_a;
+  lambda_post_target := Some target_l;
+  student_a_post_target := Some target_1;
+  student_b_post_target := Some target_2;
+  student_c_post_target := Some target_3;
 
-let move_npc_ref_via_waypoint npc_ref waypoint_ref target_ref speed =
+  let student_a_turn_1 = classroom_npc_target 8 7 in
+  let student_a_turn_2 = classroom_npc_target 8 6 in
+  let student_b_turn_1 = classroom_npc_target 14 8 in
+  let student_c_turn_1 = classroom_npc_target 15 11 in
+  let student_c_turn_2 = classroom_npc_target 15 12 in
+  let aerin_turn_1 = classroom_npc_target 15 7 in
+  let aerin_turn_2 = classroom_npc_target 15 6 in
+  let lambda_turn_1 = classroom_npc_target 7 3 in
+  let lambda_turn_2 = classroom_npc_target 7 5 in
+  let lambda_turn_3 = classroom_npc_target 5 5 in
+
+  student_a_route_waypoints := [ student_a_turn_1; student_a_turn_2 ];
+  student_b_route_waypoints := [ student_b_turn_1 ];
+  student_c_route_waypoints := [ student_c_turn_1; student_c_turn_2 ];
+  aerin_route_waypoints := [ aerin_turn_1; aerin_turn_2 ];
+  lambda_route_waypoints := [ lambda_turn_1; lambda_turn_2; lambda_turn_3 ]
+
+let move_npc_ref_to_target ?arrival_row npc_ref target_ref speed =
   match !npc_ref, !target_ref with
   | Some npc, Some (tx, ty) ->
-      (match !waypoint_ref with
-       | Some (wx, wy) ->
-           if move_npc_toward_animated npc wx wy speed then waypoint_ref := None;
+      let pos = npc#position#get in
+      let close_enough =
+        abs_float (pos.Vector.x -. tx) <= 3.0
+        && abs_float (pos.Vector.y -. ty) <= 6.0
+      in
+      if close_enough then begin
+        npc#position#set Vector.{x = tx; y = ty};
+        (match arrival_row with Some row -> set_npc_sprite_row npc row | None -> ());
+        true
+      end else if move_npc_toward_axis_animated ~ignore_player:true ~check_collisions:false npc tx ty speed then begin
+        npc#position#set Vector.{x = tx; y = ty};
+        (match arrival_row with Some row -> set_npc_sprite_row npc row | None -> ());
+        true
+      end else
+        false
+  | _ -> true
+
+let move_npc_ref_via_waypoints ?arrival_row npc_ref waypoints_ref target_ref speed =
+  match !npc_ref, !target_ref with
+  | Some npc, Some (tx, ty) ->
+      (match !waypoints_ref with
+       | next_waypoint :: rest_waypoints ->
+           let wx, wy = next_waypoint in
+           let pos = npc#position#get in
+           let close_enough =
+             abs_float (pos.Vector.x -. wx) <= 3.0
+             && abs_float (pos.Vector.y -. wy) <= 6.0
+           in
+           let reached_waypoint =
+             if close_enough then begin
+               npc#position#set Vector.{x = wx; y = wy};
+               true
+             end else if move_npc_toward_axis_animated ~ignore_player:true ~check_collisions:false npc wx wy speed then begin
+               npc#position#set Vector.{x = wx; y = wy};
+               true
+             end else
+               false
+           in
+           if reached_waypoint then waypoints_ref := rest_waypoints;
            false
-       | None -> move_npc_toward_animated npc tx ty speed)
+       | [] -> move_npc_ref_to_target ?arrival_row npc_ref target_ref speed)
   | _ -> true
 
 let orient_classroom_bench_students_right () =
@@ -216,22 +785,62 @@ let choose_classroom_seat_target player_pos =
   let seat_cx, seat_cy = Classroom_map.cell_center 13 12 in
   (float_of_int (seat_cx - (Cst.player_width / 2)), float_of_int (seat_cy - Cst.player_height + 2))
 
+let player_can_stand_at_auto player x y =
+  let box = player#box#get in
+  let candidate = rect_from_pos_box Vector.{x; y} box in
+  let out_of_bounds =
+    candidate.x < 0.0
+    || candidate.y < 0.0
+    || candidate.x +. candidate.width > float_of_int Cst.window_width
+    || candidate.y +. candidate.height > float_of_int Cst.window_height
+  in
+  if out_of_bounds then false
+  else
+    match Scene.current () with
+    | Scene.Town -> not (collides_town_obstacles candidate)
+    | Scene.School -> not (collides_school_obstacles candidate)
+    | Scene.Classroom ->
+        not
+          (List.exists
+             (fun (rx, ry, rw, rh) -> Rect.collides candidate (rect_for_int rx ry rw rh))
+             (Classroom_map.collision_rects ()))
+    | _ -> true
+
 let move_player_toward_auto player target_x target_y speed =
   let pos = player#position#get in
   let dx = target_x -. pos.Vector.x in
   let dy = target_y -. pos.Vector.y in
-  let dist = sqrt ((dx *. dx) +. (dy *. dy)) in
-  if dist <= speed || dist = 0.0 then (
+  let adx = abs_float dx in
+  let ady = abs_float dy in
+  if adx <= speed && ady <= speed then (
     player#position#set Vector.{x = target_x; y = target_y};
     Player.stop_player ();
     true
   ) else (
-    let vx = dx /. dist *. speed in
-    let vy = dy /. dist *. speed in
-    Player.move_player player Vector.{x = vx; y = vy};
-    player#position#set Vector.{x = pos.Vector.x +. vx; y = pos.Vector.y +. vy};
-    player#velocity#set Vector.zero;
-    false
+    let try_move nx ny vx vy =
+      if player_can_stand_at_auto player nx ny then begin
+        Player.move_player player Vector.{x = vx; y = vy};
+        player#position#set Vector.{x = nx; y = ny};
+        player#velocity#set Vector.zero;
+        true
+      end else
+        false
+    in
+    (* Axis-only movement: vertical first, then horizontal. *)
+    if ady > 0.01 then begin
+      let step_y = if dy > 0.0 then min speed ady else -. (min speed ady) in
+      let ny = pos.Vector.y +. step_y in
+      ignore (try_move pos.Vector.x ny 0.0 step_y);
+      false
+    end else if adx > 0.01 then begin
+      let step_x = if dx > 0.0 then min speed adx else -. (min speed adx) in
+      let nx = pos.Vector.x +. step_x in
+      ignore (try_move nx pos.Vector.y step_x 0.0);
+      false
+    end else (
+      Player.stop_player ();
+      true
+    )
   )
 
 let setup_town_npcs ~(knight:npc_entity) ~(merchant:npc_entity) ~(scholar:npc_entity) =
@@ -304,6 +913,7 @@ let setup_classroom_npcs ~(professor:npc_entity) ~(aerin:npc_entity) ~(student_a
   classroom_seating_started := false;
   classroom_seating_done := false;
   classroom_seat_target := None;
+  classroom_seat_waypoints := [];
   classroom_seating_stuck_ticks := 0;
   classroom_last_player_pos := None;
   classroom_seating_total_ticks := 0;
@@ -337,19 +947,13 @@ let clear_classroom_students_for_return () =
    | None -> ())
 
 let start_aerin_exit_sequence () =
-  let up_target =
-    match !aerin_ref with
-    | Some aerin ->
-        let pos = aerin#position#get in
-        (pos.Vector.x, pos.Vector.y -. (2.0 *. float_of_int Cst.classroom_cell_h))
-    | None -> classroom_npc_target 3 4
-  in
   let sx, sy, sw, _ = Classroom_map.school_door_rect () in
   let door_center_x = sx + (sw / 2) in
   let door_target =
     (float_of_int (door_center_x - 20), float_of_int (sy - 30))
   in
-  aerin_exit_waypoint := Some up_target;
+  aerin_exit_waypoint := None;
+  aerin_exit_route_waypoints := [];
   aerin_exit_target := Some door_target;
   aerin_exit_started := true;
   aerin_exit_phase := 1;
@@ -428,16 +1032,6 @@ let update_aerin_exit_sequence () =
     let global = Global.get () in
     match !aerin_exit_phase with
     | 1 ->
-        let reached_up =
-          match !aerin_ref, !aerin_exit_waypoint with
-          | Some npc, Some (ux, uy) -> move_npc_toward_animated npc ux uy 2.0
-          | _ -> true
-        in
-        if reached_up then begin
-          aerin_exit_waypoint := None;
-          aerin_exit_phase := 2
-        end
-    | 2 ->
         if (not !aerin_exit_dialogue_started) && not global.dialogue_state.active then begin
           aerin_exit_dialogue_started := true;
           Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
@@ -446,16 +1040,44 @@ let update_aerin_exit_sequence () =
           ])
         end;
         if !aerin_exit_dialogue_started && not global.dialogue_state.active then begin
+          let sx, _, sw, _ = Classroom_map.school_door_rect () in
+          let door_center_x = sx + (sw / 2) in
+          let stop_before_player =
+            let player_pos = global.player#position#get in
+            let aerin_x =
+              match !aerin_ref with
+              | Some aerin -> (aerin#position#get).Vector.x
+              | None -> player_pos.Vector.x
+            in
+            (aerin_x, player_pos.Vector.y -. float_of_int Cst.classroom_cell_h)
+          in
+          let align_with_exit_column =
+            (float_of_int (door_center_x - 20), snd stop_before_player)
+          in
+          aerin_exit_waypoint := Some stop_before_player;
+          aerin_exit_route_waypoints := [ align_with_exit_column ];
+          aerin_exit_phase := 2
+        end
+    | 2 ->
+        let reached_stop =
+          match !aerin_ref, !aerin_exit_waypoint with
+          | Some npc, Some (ux, uy) ->
+              move_npc_toward_axis_animated ~ignore_player:true ~check_collisions:false npc ux uy 2.0
+          | _ -> true
+        in
+        if reached_stop then begin
+          aerin_exit_waypoint := None;
           aerin_exit_phase := 3
         end
     | 3 ->
-        let done_exit = move_npc_ref_to_target aerin_ref aerin_exit_target 2.2 in
+        let done_exit = move_npc_ref_via_waypoints ~arrival_row:sprite_row_down aerin_ref aerin_exit_route_waypoints aerin_exit_target 2.2 in
         if done_exit then begin
           (match !aerin_ref with
            | Some aerin -> aerin#tag#set (InScene Scene.Menu)
            | None -> ());
           aerin_exit_phase := 4;
-          aerin_exit_waypoint := None
+          aerin_exit_waypoint := None;
+          aerin_exit_route_waypoints := []
         end
     | 4 ->
         if (not !lambda_post_aerin_dialogue_started) && not global.dialogue_state.active then begin
@@ -478,6 +1100,7 @@ let update_aerin_exit_sequence () =
           aerin_exit_started := false;
           aerin_exit_phase := 0;
           aerin_exit_waypoint := None;
+          aerin_exit_route_waypoints := [];
           aerin_exit_target := None;
           aerin_exit_dialogue_started := false;
           lambda_post_aerin_dialogue_started := false;
@@ -535,6 +1158,9 @@ let update_aerin_exit_sequence () =
   end
 
 let reset_for_new_game () =
+  Hashtbl.clear npc_path_cache;
+  Hashtbl.clear npc_blocked_ticks;
+  Navigation_debug.clear ();
   knight_moved_aside := false;
   school_students_intro_started := false;
   school_students_running := false;
@@ -545,6 +1171,7 @@ let reset_for_new_game () =
   classroom_seating_started := false;
   classroom_seating_done := false;
   classroom_seat_target := None;
+  classroom_seat_waypoints := [];
   classroom_seating_stuck_ticks := 0;
   classroom_last_player_pos := None;
   classroom_seating_total_ticks := 0;
@@ -563,6 +1190,7 @@ let reset_for_new_game () =
   aerin_exit_started := false;
   aerin_exit_phase := 0;
   aerin_exit_waypoint := None;
+  aerin_exit_route_waypoints := [];
   aerin_exit_target := None;
   aerin_exit_dialogue_started := false;
   lambda_post_aerin_dialogue_started := false;
@@ -606,72 +1234,72 @@ let update_school_students_event () =
     end;
 
     if not !school_students_running then begin
-      if not global.dialogue_state.active then school_students_running := true
+      if not global.dialogue_state.active then begin
+        school_students_running := true;
+        if not !school_messenger_spoke then begin
+          school_messenger_spoke := true;
+          (match !school_messenger_ref with
+           | Some npc ->
+               let look_row = facing_row_toward_player (npc#position#get) player_pos in
+               set_npc_sprite_row npc look_row
+           | None -> ());
+          Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
+            { speaker = "Eleve"; text = "Vite ! Le Professeur Lambda va commencer son cours !" };
+          ])
+        end
+      end
     end else begin
-      let queue_a_x, queue_a_y = school_npc_target 8 4 in
-      let queue_b_x, queue_b_y = school_npc_target 10 4 in
-      let queue_c_x, queue_c_y = school_npc_target 7 4 in
-      let class_door_x, class_door_y, class_door_w, _ = School_map.class_door_rect () in
-      let door_center_x = float_of_int (class_door_x + (class_door_w / 2) - 20) in
-      let door_queue_y = float_of_int (class_door_y + Cst.school_cell_h + 6 - 30) in
-      let class_entry_y = float_of_int (class_door_y - 12) in
+      let c1_cell, c2_cell =
+        match School_map.marker_cells 'C' with
+        | c1 :: c2 :: _ -> (c1, c2)
+        | [ c1 ] -> (c1, c1)
+        | _ -> ((9, 2), (10, 2))
+      in
+      let c1_x, c1_y = school_npc_target (fst c1_cell) (snd c1_cell) in
+      let c2_x, c2_y = school_npc_target (fst c2_cell) (snd c2_cell) in
+      let can_move_students = !school_messenger_spoke in
+      let move_student_right_then_to_c npc stage_ref c_x c_y speed =
+        let finish_on_c () =
+          npc#position#set Vector.{x = c_x; y = c_y};
+          stage_ref := 2;
+          npc#tag#set (InScene Scene.Menu)
+        in
+        match !stage_ref with
+        | 0 ->
+            let pos = npc#position#get in
+            if move_npc_toward_axis_animated ~ignore_player:true ~check_collisions:false npc c_x pos.Vector.y speed then
+              stage_ref := 1
+        | 1 ->
+            let pos = npc#position#get in
+            let close_enough =
+              abs_float (pos.Vector.x -. c_x) <= 3.0
+              && abs_float (pos.Vector.y -. c_y) <= 6.0
+            in
+            if close_enough then
+              finish_on_c ()
+            else if move_npc_toward_axis_animated ~ignore_player:true ~check_collisions:false npc c_x c_y speed then
+              finish_on_c ()
+        | _ -> ()
+      in
 
       (match !school_student_a_ref with
        | Some npc ->
-           if not !school_messenger_spoke then set_npc_sprite_row npc sprite_row_right
-           else if not global.dialogue_state.active then
-             (match !school_student_a_stage with
-              | 0 -> if move_npc_toward_animated npc queue_a_x queue_a_y 2.1 then school_student_a_stage := 1
-              | 1 -> if move_npc_toward_animated npc door_center_x queue_a_y 2.1 then school_student_a_stage := 2
-              | 2 ->
-                  if move_npc_toward_animated npc door_center_x door_queue_y 2.2 then school_student_a_stage := 3
-              | 3 ->
-                  if move_npc_toward_animated npc door_center_x class_entry_y 2.4 then (
-                    school_student_a_stage := 3;
-                    npc#tag#set (InScene Scene.Menu)
-                  )
-              | _ -> ())
+           if not can_move_students then set_npc_sprite_row npc sprite_row_right
+           else move_student_right_then_to_c npc school_student_a_stage c1_x c1_y 2.2
        | None -> ());
 
       (match !school_student_b_ref with
        | Some npc ->
-           if not !school_messenger_spoke then set_npc_sprite_row npc sprite_row_left
-           else if (not global.dialogue_state.active) && !school_student_a_stage >= 2 then
-             (match !school_student_b_stage with
-              | 0 -> if move_npc_toward_animated npc queue_b_x queue_b_y 2.0 then school_student_b_stage := 1
-              | 1 -> if move_npc_toward_animated npc door_center_x queue_b_y 2.0 then school_student_b_stage := 2
-              | 2 ->
-                  if move_npc_toward_animated npc door_center_x door_queue_y 2.2 then school_student_b_stage := 3
-              | 3 ->
-                  if move_npc_toward_animated npc door_center_x class_entry_y 2.4 then (
-                    school_student_b_stage := 3;
-                    npc#tag#set (InScene Scene.Menu)
-                  )
-              | _ -> ())
+           if not can_move_students then set_npc_sprite_row npc sprite_row_left
+           else move_student_right_then_to_c npc school_student_b_stage c2_x c2_y 2.1
        | None -> ());
 
       (match !school_messenger_ref with
        | Some npc ->
-           if not !school_messenger_spoke then begin
-             let arrived = move_npc_toward_animated npc queue_c_x queue_c_y 2.0 in
-             if arrived && not global.dialogue_state.active then begin
-               school_messenger_spoke := true;
-               let look_row = facing_row_toward_player (npc#position#get) player_pos in
-               set_npc_sprite_row npc look_row;
-               Dialogue.start_dialogue global.dialogue_state (Dialogue.create_dialogue [
-                 { speaker = "Eleve"; text = "Vite ! Le Professeur Lambda va commencer son cours !" };
-               ])
-             end
-           end else if (not global.dialogue_state.active) && !school_student_b_stage >= 2 then begin
-             (match !school_messenger_stage with
-              | 0 -> if move_npc_toward_animated npc door_center_x queue_c_y 2.1 then school_messenger_stage := 1
-              | 1 ->
-                  if move_npc_toward_animated npc door_center_x class_entry_y 2.4 then (
-                    school_messenger_stage := 2;
-                    npc#tag#set (InScene Scene.Menu)
-                  )
-              | _ -> ())
-           end
+           if not can_move_students then begin
+             let look_row = facing_row_toward_player (npc#position#get) player_pos in
+             set_npc_sprite_row npc look_row
+           end else move_student_right_then_to_c npc school_messenger_stage c1_x c1_y 2.0
        | None -> ());
 
       let is_hidden npc_ref =
@@ -694,6 +1322,15 @@ let update_school_students_event () =
 
 let update_school_intro_event () =
   let global = Global.get () in
+  global.classroom_scripted_movement_active <-
+    Scene.current () = Scene.Classroom
+    && (
+         not global.classroom_intro_completed
+         || !classroom_post_success_started
+         || !aerin_exit_started
+         || !students_exit_started
+         || !lambda_return_started
+       );
   update_aerin_exit_sequence ();
   (match !professor_lambda_ref with
    | Some lambda ->
@@ -762,6 +1399,8 @@ let update_school_intro_event () =
         end
     | _ -> ()
   end;
+  if not global.classroom_scripted_movement_active then
+    global.classroom_scripted_movement_active <- false;
   if Scene.current () <> Scene.Classroom then
     ()
   else if global.classroom_intro_completed && not !classroom_post_success_started then begin
@@ -788,28 +1427,32 @@ let update_school_intro_event () =
            end
        | 2 ->
            incr classroom_post_move_ticks;
-           let aerin_done = move_npc_ref_via_waypoint aerin_ref aerin_route_waypoint aerin_post_target 2.0 in
+           let aerin_done = move_npc_ref_via_waypoints ~arrival_row:sprite_row_down aerin_ref aerin_route_waypoints aerin_post_target 2.0 in
            if (not global.dialogue_state.active) then begin
              (match !aerin_ref, !aerin_post_target with
-              | Some npc, Some (x, y) when aerin_done -> npc#position#set Vector.{x; y}
+              | Some npc, Some (x, y) when aerin_done ->
+                  npc#position#set Vector.{x; y};
+                  set_npc_sprite_row npc sprite_row_down
               | _ -> ());
              classroom_post_phase := 3;
              classroom_post_move_ticks := 0
            end else if aerin_done || !classroom_post_move_ticks >= 220 then begin
              (match !aerin_ref, !aerin_post_target with
-              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | Some npc, Some (x, y) ->
+                  npc#position#set Vector.{x; y};
+                  set_npc_sprite_row npc sprite_row_down
               | _ -> ());
-              aerin_route_waypoint := None;
+              aerin_route_waypoints := [];
            end
        | 3 ->
            global.player#velocity#set Vector.zero;
            incr classroom_post_move_ticks;
-            let aerin_done = move_npc_ref_via_waypoint aerin_ref aerin_route_waypoint aerin_post_target 2.0 in
-            let lambda_done = move_npc_ref_via_waypoint professor_lambda_ref lambda_route_waypoint lambda_post_target 1.8 in
+            let aerin_done = move_npc_ref_via_waypoints ~arrival_row:sprite_row_down aerin_ref aerin_route_waypoints aerin_post_target 2.0 in
+            let lambda_done = move_npc_ref_via_waypoints ~arrival_row:sprite_row_down professor_lambda_ref lambda_route_waypoints lambda_post_target 1.8 in
            let start_students = !classroom_post_move_ticks >= 6 in
-            let s1_done = if start_students then move_npc_ref_via_waypoint classroom_student_a_ref student_a_route_waypoint student_a_post_target 1.8 else false in
-            let s2_done = if start_students then move_npc_ref_via_waypoint classroom_student_b_ref student_b_route_waypoint student_b_post_target 1.8 else false in
-            let s3_done = if start_students then move_npc_ref_via_waypoint classroom_student_c_ref student_c_route_waypoint student_c_post_target 1.8 else false in
+            let s1_done = if start_students then move_npc_ref_via_waypoints ~arrival_row:sprite_row_left classroom_student_a_ref student_a_route_waypoints student_a_post_target 1.8 else false in
+            let s2_done = if start_students then move_npc_ref_via_waypoints ~arrival_row:sprite_row_left classroom_student_b_ref student_b_route_waypoints student_b_post_target 1.8 else false in
+            let s3_done = if start_students then move_npc_ref_via_waypoints ~arrival_row:sprite_row_left classroom_student_c_ref student_c_route_waypoints student_c_post_target 1.8 else false in
             if aerin_done && lambda_done && s1_done && s2_done && s3_done then begin
              orient_classroom_bench_students_right ();
              classroom_post_success_started := false;
@@ -819,19 +1462,29 @@ let update_school_intro_event () =
              school_intro_done := true
            end else if !classroom_post_move_ticks >= 420 then begin
               (match !aerin_ref, !aerin_post_target with
-               | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+               | Some npc, Some (x, y) ->
+                 npc#position#set Vector.{x; y};
+                 set_npc_sprite_row npc sprite_row_down
                | _ -> ());
              (match !professor_lambda_ref, !lambda_post_target with
-              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | Some npc, Some (x, y) ->
+                npc#position#set Vector.{x; y};
+                set_npc_sprite_row npc sprite_row_down
               | _ -> ());
              (match !classroom_student_a_ref, !student_a_post_target with
-              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | Some npc, Some (x, y) ->
+                npc#position#set Vector.{x; y};
+                set_npc_sprite_row npc sprite_row_right
               | _ -> ());
              (match !classroom_student_b_ref, !student_b_post_target with
-              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | Some npc, Some (x, y) ->
+                npc#position#set Vector.{x; y};
+                set_npc_sprite_row npc sprite_row_right
               | _ -> ());
              (match !classroom_student_c_ref, !student_c_post_target with
-              | Some npc, Some (x, y) -> npc#position#set Vector.{x; y}
+              | Some npc, Some (x, y) ->
+                npc#position#set Vector.{x; y};
+                set_npc_sprite_row npc sprite_row_right
               | _ -> ());
              orient_classroom_bench_students_right ();
              classroom_post_success_started := false;
@@ -845,7 +1498,10 @@ let update_school_intro_event () =
     else if not !classroom_seating_started then begin
       classroom_seating_started := true;
       classroom_seating_done := false;
-      classroom_seat_target := Some (choose_classroom_seat_target (global.player#position#get));
+      let seat_target = choose_classroom_seat_target (global.player#position#get) in
+      classroom_seat_target := Some seat_target;
+      let player_pos = global.player#position#get in
+      classroom_seat_waypoints := [ (player_pos.Vector.x, snd seat_target) ];
       classroom_seating_stuck_ticks := 0;
       classroom_last_player_pos := Some (global.player#position#get);
       classroom_seating_total_ticks := 0;
@@ -862,7 +1518,15 @@ let update_school_intro_event () =
           | None -> choose_classroom_seat_target (global.player#position#get)
         in
         incr classroom_seating_total_ticks;
-        if move_player_toward_auto global.player target_x target_y 2.1 then begin
+        let reached_target =
+          match !classroom_seat_waypoints with
+          | (wx, wy) :: rest ->
+              let reached_waypoint = move_player_toward_auto global.player wx wy 2.1 in
+              if reached_waypoint then classroom_seat_waypoints := rest;
+              false
+          | [] -> move_player_toward_auto global.player target_x target_y 2.1
+        in
+        if reached_target then begin
           classroom_seating_done := true;
           Player.move_player global.player Vector.{x = 0.0; y = -.0.1};
           global.player#velocity#set Vector.zero
@@ -873,11 +1537,9 @@ let update_school_intro_event () =
           in
           if moved < 0.15 then incr classroom_seating_stuck_ticks
           else classroom_seating_stuck_ticks := 0;
-          if !classroom_seating_stuck_ticks >= 20 || !classroom_seating_total_ticks >= 180 then begin
-            global.player#position#set Vector.{x = target_x; y = target_y};
-            Player.move_player global.player Vector.{x = 0.0; y = -.0.1};
-            global.player#velocity#set Vector.zero;
-            classroom_seating_done := true;
+          if !classroom_seating_stuck_ticks >= 45 || !classroom_seating_total_ticks >= 360 then begin
+            let player_pos = global.player#position#get in
+            classroom_seat_waypoints := [ (player_pos.Vector.x, target_y) ];
             classroom_seating_stuck_ticks := 0;
             classroom_seating_total_ticks := 0
           end;

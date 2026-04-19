@@ -17,18 +17,30 @@ let update _ el =
   el
   |> iter_pairs (fun (e1:t) (e2:t) ->
 
+      let should_ignore_player_npc_collision player_other =
+        let global = Global.get () in
+        global.classroom_scripted_movement_active
+        && Interaction.is_registered_npc_entity (player_other :> Entity.t)
+      in
+
       let pos1 : Vector.t = e1#position#get in
       let pos2 : Vector.t = e2#position#get in
       let box1 : Rect.t = e1#box#get in
       let box2 : Rect.t = e2#box#get in
       match e1#tag#get, e2#tag#get with
         | Player, _ ->
-            (match Rect.rebound pos1 box1 pos2 box2 with
-              | None -> ()
-              | Some v -> e1#resolve#get v (e2 :> tagged))
+            if should_ignore_player_npc_collision e2 then
+              ()
+            else
+              (match Rect.rebound pos1 box1 pos2 box2 with
+                | None -> ()
+                | Some v -> e1#resolve#get v (e2 :> tagged))
         | _, Player ->
-            (match Rect.rebound pos2 box2 pos1 box1 with
-              | None -> ()
-              | Some v -> e2#resolve#get v (e1 :> tagged))
+            if should_ignore_player_npc_collision e1 then
+              ()
+            else
+              (match Rect.rebound pos2 box2 pos1 box1 with
+                | None -> ()
+                | Some v -> e2#resolve#get v (e1 :> tagged))
         | _ -> ()
     )

@@ -3,12 +3,20 @@ open Component_defs
 
 let npc_table : (npc_entity, unit) Entity.Table.t = Entity.Table.create 16
 let sign_table : (sign_entity, unit) Entity.Table.t = Entity.Table.create 16
+let npc_entity_table : (Entity.t, unit) Entity.Table.t = Entity.Table.create 16
 
 let register_npc (npc : npc_entity) =
   if not (Entity.Table.mem npc_table npc) then begin
     Entity.Table.add npc_table npc ();
-    Entity.register (npc :> Entity.t) (fun () -> Entity.Table.remove npc_table npc)
+    let as_entity = (npc :> Entity.t) in
+    Entity.Table.add npc_entity_table as_entity ();
+    Entity.register as_entity (fun () ->
+      Entity.Table.remove npc_table npc;
+      Entity.Table.remove npc_entity_table as_entity)
   end
+
+let is_registered_npc_entity (entity : Entity.t) =
+  Entity.Table.mem npc_entity_table entity
 
 let register_sign (sign : sign_entity) =
   if not (Entity.Table.mem sign_table sign) then begin

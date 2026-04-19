@@ -83,3 +83,20 @@ let book_pos () =
       let x = cell_x 6 + (cell_w 6 - 14) / 2 in
       let y = cell_y 6 + (cell_h 6 - 12) / 2 in
       (x, y)
+
+let collision_rects () =
+  let rects = ref [] in
+  let add rect = rects := rect :: !rects in
+  for r = 0 to Cst.house_rows - 1 do
+    for c = 0 to Cst.house_cols - 1 do
+      if is_blocked c r then
+        add (cell_x c, cell_y r, cell_w c, cell_h r)
+    done
+  done;
+  let house_right = Cst.house_offset_x + Cst.house_width in
+  let house_bottom = Cst.house_offset_y + Cst.house_height in
+  add (0, 0, Cst.window_width, Cst.house_offset_y);
+  add (0, house_bottom, Cst.window_width, Cst.window_height - house_bottom);
+  add (0, Cst.house_offset_y, Cst.house_offset_x, Cst.house_height);
+  add (house_right, Cst.house_offset_y, Cst.window_width - house_right, Cst.house_height);
+  List.rev !rects

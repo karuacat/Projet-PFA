@@ -23,6 +23,17 @@ let cell_center col row =
 let is_blocked col row =
   layout.(row).[col] = 'N'
 
+let collision_rects () =
+  let rects = ref [] in
+  let add rect = rects := rect :: !rects in
+  for r = 0 to Cst.school_rows - 1 do
+    for c = 0 to Cst.school_cols - 1 do
+      if layout.(r).[c] = 'N' then
+        add (cell_x c, cell_y r, Cst.school_cell_w, Cst.school_cell_h)
+    done
+  done;
+  List.rev !rects
+
 let marker_cells marker =
   let cells = ref [] in
   for row = 0 to Array.length layout - 1 do
